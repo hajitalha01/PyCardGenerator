@@ -1,0 +1,14 @@
+.venv/
+build/
+dist/
+__pycache__/
+*.pyc
+
+logs/
+generated_cards/
+uploads/
+
+database/card_generator.db
+
+.vscode/
+.idea/

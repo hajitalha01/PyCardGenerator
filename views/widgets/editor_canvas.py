@@ -4,8 +4,9 @@ Provides a QGraphicsView-based canvas with a checkerboard
 background, centred card area, keyboard/mouse interaction,
 multi-selection, zoom, and item-management methods.
 """
+import traceback
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -29,11 +30,16 @@ from PySide6.QtWidgets import (
 )
 
 from config.constants import CARD_HEIGHT_PX, CARD_WIDTH_PX
+from models.field import TemplateField
 from views.widgets.canvas_items import (
     BaseCanvasItem,
+    CircleItem,
+    HorizontalLineItem,
+    ImageItem,
     PhotoFieldItem,
     RectangleItem,
     TextFieldItem,
+    VerticalLineItem,
 )
 
 
@@ -99,6 +105,9 @@ class EditorCanvas(QGraphicsView):
 
         # Clipboard for copy/paste
         self._clipboard: list[BaseCanvasItem] = []
+
+        # Background image item
+        self._background_item: QGraphicsItem | None = None
 
         self._setup_scene()
 
@@ -260,6 +269,39 @@ class EditorCanvas(QGraphicsView):
         self._configure_item(item)
         return item
 
+    def add_circle(self, x: float | None = None, y: float | None = None) -> CircleItem:
+        item: CircleItem = CircleItem(
+            x or (self._card_w / 2 + 60),
+            y or (self._card_h / 2 + 60),
+        )
+        self._configure_item(item)
+        return item
+
+    def add_horizontal_line(self, x: float | None = None, y: float | None = None) -> HorizontalLineItem:
+        item: HorizontalLineItem = HorizontalLineItem(
+            x or (self._card_w / 2 + 60),
+            y or (self._card_h / 2 + 60),
+        )
+        self._configure_item(item)
+        return item
+
+    def add_vertical_line(self, x: float | None = None, y: float | None = None) -> VerticalLineItem:
+        item: VerticalLineItem = VerticalLineItem(
+            x or (self._card_w / 2 + 60),
+            y or (self._card_h / 2 + 60),
+        )
+        self._configure_item(item)
+        return item
+
+    def add_image_item(self, image_path: str = "") -> ImageItem:
+        item: ImageItem = ImageItem(
+            self._card_w / 2 + 60,
+            self._card_h / 2 + 60,
+            image_path,
+        )
+        self._configure_item(item)
+        return item
+
     def _configure_item(self, item: BaseCanvasItem) -> None:
         """Add an item to the scene and connect its signals.
 
@@ -275,11 +317,14 @@ class EditorCanvas(QGraphicsView):
         self.object_selected.emit(item)
 
     def _hide_placeholder(self) -> None:
-        """Hide the 'No Template Loaded' text when items exist."""
-        has_items: bool = any(
-            isinstance(i, BaseCanvasItem) for i in self._scene.items()
-        )
-        self._placeholder.setVisible(not has_items)
+        """Hide the 'No Template Loaded' text when items or background exist."""
+        all_items = list(self._scene.items())
+        canvas_items = [i for i in all_items if isinstance(i, BaseCanvasItem)]
+        has_items: bool = len(canvas_items) > 0
+        has_bg: bool = self._background_item is not None
+        visible: bool = not has_items and not has_bg
+        print(f"[TRACE _hide_placeholder] scene items={len(all_items)} canvas_items={len(canvas_items)} has_bg={has_bg} -> placeholder visible={visible}")
+        self._placeholder.setVisible(visible)
 
     # ------------------------------------------------------------------
     # Selection helpers
@@ -315,6 +360,177 @@ class EditorCanvas(QGraphicsView):
             item: The item that was removed.
         """
         self._hide_placeholder()
+
+    # ------------------------------------------------------------------
+    # Background image
+    # ------------------------------------------------------------------
+
+    def _set_card_brush(self, color: QColor) -> None:
+        self._card_item.setBrush(QBrush(color))
+
+    def set_background_image(self, path: str) -> None:
+        """Load and display a background image on the card area."""
+        self._clear_background()
+        print(f"[TRACE set_bg] path='{path}'")
+        from PySide6.QtGui import QPixmap  # noqa: PLC0415
+
+        pixmap: QPixmap = QPixmap(path)
+        is_null: bool = pixmap.isNull()
+        print(f"[TRACE set_bg] QPixmap.isNull()={is_null}")
+        if is_null:
+            print(f"[TRACE set_bg] PIXMAP IS NULL — image not found or invalid format")
+            return
+
+        card_rect = self._card_item.rect()
+        scaled: QPixmap = pixmap.scaled(
+            int(card_rect.width()),
+            int(card_rect.height()),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        print(f"[TRACE set_bg] scaled size={scaled.width()}x{scaled.height()}")
+        item = self._scene.addPixmap(scaled)
+        item.setPos(self._card_item.pos())
+        item.setZValue(-1)
+        self._background_item = item
+        self._set_card_brush(QColor(0, 0, 0, 0))
+        print(f"[TRACE set_bg] background_item set, zValue=-1, calling _hide_placeholder")
+        self._hide_placeholder()
+
+    def _clear_background(self) -> None:
+        """Remove the current background image from the scene."""
+        if self._background_item is not None and self._background_item.scene() is not None:
+            self._scene.removeItem(self._background_item)
+            self._background_item = None
+        self._set_card_brush(QColor("#ffffff"))
+
+    # ------------------------------------------------------------------
+    # Load / save fields
+    # ------------------------------------------------------------------
+
+    def load_fields(self, fields: list[TemplateField]) -> None:
+        """Clear existing items and recreate them from *fields*."""
+        print(f"[TRACE load_fields] START: {len(fields)} fields")
+        # Remove existing canvas items
+        removed: int = 0
+        for item in list(self._scene.items()):
+            if isinstance(item, BaseCanvasItem):
+                self._scene.removeItem(item)
+                removed += 1
+        print(f"[TRACE load_fields] removed {removed} existing items")
+
+        card_pos = self._card_item.pos()
+        print(f"[TRACE load_fields] card_pos=({card_pos.x()}, {card_pos.y()})")
+
+        created: int = 0
+        for field in fields:
+            x: float = card_pos.x() + field.x * CARD_WIDTH_PX / 85.6
+            y: float = card_pos.y() + field.y * CARD_HEIGHT_PX / 54.0
+            w: float = field.width * CARD_WIDTH_PX / 85.6
+            h: float = field.height * CARD_HEIGHT_PX / 54.0
+
+            obj_type: str = field.object_type
+            print(f"[TRACE load_fields] creating field type='{obj_type}' pos=({x:.1f},{y:.1f}) size=({w:.1f},{h:.1f})")
+
+            if obj_type == "text_field":
+                item: BaseCanvasItem = TextFieldItem(x, y)
+                item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
+            elif obj_type == "photo_field":
+                item = PhotoFieldItem(x, y)
+                item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
+            elif obj_type in ("rectangle", "line"):
+                item = RectangleItem(x, y)
+                item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
+            elif obj_type == "circle":
+                item = CircleItem(x, y)
+                item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
+            elif obj_type == "horizontal_line":
+                item = HorizontalLineItem(x, y)
+                item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
+            elif obj_type == "vertical_line":
+                item = VerticalLineItem(x, y)
+                item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
+            elif obj_type == "image":
+                img_path = field.field_name if field.field_name and field.field_name.startswith(("C:", "D:", "E:", "/", "\\")) else ""
+                item = ImageItem(x, y, img_path)
+                item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
+            else:
+                print(f"[TRACE load_fields] UNKNOWN type '{obj_type}' — SKIPPING")
+                continue
+
+            item.setZValue(float(field.z_order))
+            item.set_snap(self._snap_enabled, self._snap_size)
+            item.item_selected.connect(self._on_item_selected)
+            item.item_deleted.connect(self._on_item_deleted)
+            self._scene.addItem(item)
+            created += 1
+
+        print(f"[TRACE load_fields] created {created} items, calling _hide_placeholder")
+        self._hide_placeholder()
+        print(f"[TRACE load_fields] DONE")
+
+    def get_fields(self, template_id: int) -> list[TemplateField]:
+        """Extract ``TemplateField`` objects from the current canvas items.
+
+        Args:
+            template_id: The owning template's id.
+
+        Returns:
+            A list of ``TemplateField`` objects.
+        """
+        from utils.helpers import timestamp_now  # noqa: PLC0415
+
+        now: str = timestamp_now()
+        fields: list[TemplateField] = []
+        card_pos = self._card_item.pos()
+
+        for i, scene_item in enumerate(self._scene.items()):
+            if not isinstance(scene_item, BaseCanvasItem):
+                continue
+
+            x_mm: float = (scene_item.pos().x() - card_pos.x()) * 85.6 / CARD_WIDTH_PX
+            y_mm: float = (scene_item.pos().y() - card_pos.y()) * 54.0 / CARD_HEIGHT_PX
+            w_mm: float = scene_item.item_rect.width() * 85.6 / CARD_WIDTH_PX
+            h_mm: float = scene_item.item_rect.height() * 54.0 / CARD_HEIGHT_PX
+
+            obj_type: str = "text_field"
+
+            if isinstance(scene_item, TextFieldItem):
+                obj_type = "text_field"
+            elif isinstance(scene_item, PhotoFieldItem):
+                obj_type = "photo_field"
+            elif isinstance(scene_item, RectangleItem):
+                obj_type = "rectangle"
+            elif isinstance(scene_item, CircleItem):
+                obj_type = "circle"
+            elif isinstance(scene_item, HorizontalLineItem):
+                obj_type = "horizontal_line"
+            elif isinstance(scene_item, VerticalLineItem):
+                obj_type = "vertical_line"
+            elif isinstance(scene_item, ImageItem):
+                obj_type = "image"
+
+            field_name: str = f"field_{i}"
+            if isinstance(scene_item, ImageItem):
+                field_name = scene_item.image_path or f"field_{i}"
+
+            field = TemplateField(
+                template_id=template_id,
+                object_type=obj_type,
+                field_name=field_name,
+                display_name=f"Field {i}",
+                field_type="text" if obj_type == "text_field" else "photo",
+                x=round(x_mm, 2),
+                y=round(y_mm, 2),
+                width=round(max(w_mm, 5.0), 2),
+                height=round(max(h_mm, 5.0), 2),
+                z_order=i,
+                page_side="front",
+                created_at=now,
+            )
+            fields.append(field)
+
+        return fields
 
     # ------------------------------------------------------------------
     # Keyboard handling

@@ -48,18 +48,19 @@ CREATE TABLE IF NOT EXISTS template_fields (
 );
 
 CREATE TABLE IF NOT EXISTS cards (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    template_id   INTEGER NOT NULL,
-    photo_path    TEXT,
-    name          TEXT,
-    program       TEXT,
-    roll_no       TEXT,
-    cnic          TEXT,
-    expiry_date   TEXT,
-    front_output  TEXT,
-    back_output   TEXT,
-    combined_pdf  TEXT,
-    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    template_id       INTEGER NOT NULL,
+    photo_path        TEXT,
+    employee_name     TEXT,
+    designation       TEXT,
+    employee_category TEXT,
+    blood_group       TEXT,
+    location          TEXT,
+    dependence        TEXT,
+    front_output      TEXT,
+    back_output       TEXT,
+    combined_pdf      TEXT,
+    created_at        TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT    NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE SET NULL
 );

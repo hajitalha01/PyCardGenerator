@@ -21,6 +21,7 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import (
+    QFileDialog,
     QGraphicsItem,
     QGraphicsObject,
     QGraphicsScene,
@@ -644,3 +645,109 @@ class RectangleItem(BaseCanvasItem):
     def _clone(self) -> RectangleItem:
         """Return a copy of this rectangle."""
         return RectangleItem(0, 0)
+
+
+class CircleItem(BaseCanvasItem):
+    """A circle / ellipse shape."""
+
+    _FILL_BRUSH: QBrush = QBrush(QColor("#fce8e6"))
+    _BORDER_PEN: QPen = QPen(QColor("#d93025"), 1.5)
+
+    def __init__(self, x: float, y: float) -> None:
+        super().__init__(x, y, 120, 80)
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyle,
+        widget: QWidget | None = None,
+    ) -> None:
+        painter.setBrush(self._FILL_BRUSH)
+        painter.setPen(self._BORDER_PEN)
+        painter.drawEllipse(self._rect)
+        super().paint(painter, option, widget)
+
+    def _clone(self) -> CircleItem:
+        return CircleItem(0, 0)
+
+
+class LineItem(BaseCanvasItem):
+    """A thin line shape drawn as a filled rectangle.
+
+    Serves as a base for horizontal and vertical lines.
+    """
+
+    _FILL_BRUSH: QBrush = QBrush(QColor("#333333"))
+    _BORDER_PEN: QPen = QPen(Qt.NoPen)
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyle,
+        widget: QWidget | None = None,
+    ) -> None:
+        painter.setBrush(self._FILL_BRUSH)
+        painter.setPen(self._BORDER_PEN)
+        painter.drawRect(self._rect)
+        super().paint(painter, option, widget)
+
+
+class HorizontalLineItem(LineItem):
+    """A horizontal divider line."""
+
+    def __init__(self, x: float, y: float) -> None:
+        super().__init__(x, y, 200, 4)
+
+    def _clone(self) -> HorizontalLineItem:
+        return HorizontalLineItem(0, 0)
+
+
+class VerticalLineItem(LineItem):
+    """A vertical divider line."""
+
+    def __init__(self, x: float, y: float) -> None:
+        super().__init__(x, y, 4, 150)
+
+    def _clone(self) -> VerticalLineItem:
+        return VerticalLineItem(0, 0)
+
+
+class ImageItem(BaseCanvasItem):
+    """An item that displays an image loaded from a file."""
+
+    _BORDER_PEN: QPen = QPen(QColor("#1a73e8"), 1.5)
+
+    def __init__(self, x: float, y: float, image_path: str = "") -> None:
+        super().__init__(x, y, 160, 120)
+        self._image_path: str = image_path
+        self._pixmap: QPixmap | None = None
+        if image_path:
+            self._pixmap = QPixmap(image_path)
+
+    @property
+    def image_path(self) -> str:
+        return self._image_path
+
+    def set_image_path(self, path: str) -> None:
+        self._image_path = path
+        self._pixmap = QPixmap(path) if path else None
+        self.update()
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyle,
+        widget: QWidget | None = None,
+    ) -> None:
+        if self._pixmap and not self._pixmap.isNull():
+            painter.drawPixmap(self._rect, self._pixmap, self._pixmap.rect())
+        else:
+            painter.setBrush(QBrush(QColor("#f1f3f4")))
+            painter.setPen(self._BORDER_PEN)
+            painter.drawRect(self._rect)
+            painter.setPen(QColor("#5f6368"))
+            painter.drawText(self._rect, Qt.AlignCenter, "Image")
+        super().paint(painter, option, widget)
+
+    def _clone(self) -> ImageItem:
+        return ImageItem(0, 0, self._image_path)

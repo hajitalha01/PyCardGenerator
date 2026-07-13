@@ -6,6 +6,9 @@ QGraphicsView canvas, right field toolbox, bottom properties
 inspector, and an editor-specific status bar.
 """
 
+import logging
+import traceback
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
@@ -18,6 +21,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -34,7 +38,13 @@ from config.constants import (
     CARD_WIDTH_MM,
     CARD_WIDTH_PX,
 )
+from config.settings import resolve_template_image
+from controllers.template_controller import TemplateController
+from models.template import CardTemplate
+from utils.logger import setup_logger
 from views.widgets.editor_canvas import EditorCanvas
+
+logger = setup_logger(__name__)
 
 
 class TemplateEditorView(QWidget):
@@ -59,6 +69,11 @@ class TemplateEditorView(QWidget):
         """Initialise the editor, toolbar, panels and canvas."""
         super().__init__()
         self.setObjectName("templateEditorView")
+
+        self._template_ctrl: TemplateController = TemplateController()
+        self._current_template_id: int | None = None
+        self._front_image: str = ""
+        self._back_image: str = ""
 
         self._setup_ui()
         self._connect_signals()
@@ -224,15 +239,15 @@ class TemplateEditorView(QWidget):
 
         # --- Template section ---
         layout.addWidget(self._make_section_title("Template"))
-        name_input: QLineEdit = QLineEdit()
-        name_input.setObjectName("fieldInput")
-        name_input.setPlaceholderText("Enter template name")
-        layout.addWidget(name_input)
+        self._editor_name_input: QLineEdit = QLineEdit()
+        self._editor_name_input.setObjectName("fieldInput")
+        self._editor_name_input.setPlaceholderText("Enter template name")
+        layout.addWidget(self._editor_name_input)
 
-        card_side: QComboBox = QComboBox()
-        card_side.setObjectName("fieldInput")
-        card_side.addItems(["Front", "Back"])
-        layout.addWidget(self._make_field_row("Card Side:", card_side))
+        self._editor_card_side: QComboBox = QComboBox()
+        self._editor_card_side.setObjectName("fieldInput")
+        self._editor_card_side.addItems(["Front", "Back"])
+        layout.addWidget(self._make_field_row("Card Side:", self._editor_card_side))
 
         # --- Canvas Size section ---
         layout.addWidget(self._make_section_title("Canvas Size"))
@@ -352,8 +367,6 @@ class TemplateEditorView(QWidget):
         field_buttons: list[str] = [
             "Add Text Field",
             "Add Photo Field",
-            "Add QR Field",
-            "Add Barcode Field",
         ]
         for text in field_buttons:
             btn: QPushButton = QPushButton(text)
@@ -392,12 +405,17 @@ class TemplateEditorView(QWidget):
         # --- Media section ---
         layout.addWidget(self._make_section_title("Media"))
 
+        self._media_buttons: dict[str, QPushButton] = {}
         media_buttons: list[str] = ["Image", "Logo"]
         for text in media_buttons:
             btn = QPushButton(text)
             btn.setObjectName("fieldToolboxBtn")
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(
+                lambda checked=False, t=text: self._on_field_button(t)
+            )
             layout.addWidget(btn)
+            self._media_buttons[text] = btn
 
         layout.addStretch()
         scroll.setWidget(container)
@@ -540,6 +558,126 @@ class TemplateEditorView(QWidget):
         self._canvas.object_selected.connect(self._on_object_selected)
         self._canvas.selection_changed.connect(self._on_selection_changed)
 
+        # Card side switching
+        self._editor_card_side.currentIndexChanged.connect(
+            self._on_card_side_changed
+        )
+
+        # Save / open toolbar buttons
+        self.save_requested.connect(self._on_save)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def load_template(self, template_id: int) -> None:
+        """Load a template into the editor."""
+        logger.info("=== load_template START id=%d ===", template_id)
+        print(f"[TRACE] load_template START id={template_id}")
+
+        try:
+            template: CardTemplate | None = self._template_ctrl.get_template_by_id(
+                template_id
+            )
+            print(f"[TRACE] get_template_by_id returned: {template}")
+            if template is None:
+                logger.warning("Template id=%d not found", template_id)
+                QMessageBox.warning(
+                    self, "Error",
+                    f"Template id={template_id} not found."
+                )
+                return
+
+            self._current_template_id = template_id
+            print(f"[TRACE] template_name='{template.template_name}'")
+            print(f"[TRACE] front_image='{template.front_image}' back_image='{template.back_image}'")
+            print(f"[TRACE] canvas_width={template.canvas_width} canvas_height={template.canvas_height}")
+            print(f"[TRACE] grid_size={template.grid_size} snap_to_grid={template.snap_to_grid}")
+
+            self._front_image = resolve_template_image(template.front_image) or ""
+            self._back_image = resolve_template_image(template.back_image) or ""
+            self._editor_name_input.setText(template.template_name)
+            self._width_spin.setValue(template.canvas_width)
+            self._height_spin.setValue(template.canvas_height)
+            self._grid_spin.setValue(template.grid_size)
+            self._snap_check.setChecked(template.snap_to_grid)
+            self._canvas.set_snap_enabled(template.snap_to_grid)
+            self._canvas.set_snap_size(template.grid_size)
+            print("[TRACE] Properties panel updated. Calling setCurrentIndex(0)")
+            self._editor_card_side.setCurrentIndex(0)
+
+            # Always clear old background first, then load new one.
+            # Note: setCurrentIndex(0) above may NOT trigger _on_card_side_changed
+            # if the index is already 0, so we must explicitly load here.
+            self._canvas._clear_background()
+            if self._front_image:
+                self._canvas.set_background_image(self._front_image)
+
+            # Load fields onto canvas
+            print("[TRACE] Calling load_layout...")
+            fields = self._template_ctrl.load_layout(template_id)
+            print(f"[TRACE] load_layout returned {len(fields)} fields")
+            for i, f in enumerate(fields):
+                print(f"  field[{i}]: type={f.object_type} name={f.field_name} x={f.x} y={f.y} w={f.width} h={f.height}")
+            print("[TRACE] Calling load_fields...")
+            self._canvas.load_fields(fields)
+            print("[TRACE] load_fields completed")
+
+            logger.info(
+                "Loaded template id=%d '%s' into editor",
+                template_id, template.template_name
+            )
+            print(f"[TRACE] === load_template SUCCESS id={template_id} ===")
+
+        except Exception as exc:
+            print(f"[TRACE] === load_template EXCEPTION: {exc} ===")
+            traceback.print_exc()
+            logger.exception("load_template failed for id=%d", template_id)
+            QMessageBox.critical(
+                self, "Template Load Error",
+                f"Failed to load template id={template_id}:\n\n{exc}\n\n"
+                f"See logs/application.log for details."
+            )
+
+    def _on_save(self) -> None:
+        """Save the current template layout."""
+        if self._current_template_id is None:
+            QMessageBox.information(
+                self, "No Template",
+                "No template is currently loaded in the editor."
+            )
+            return
+
+        template: CardTemplate | None = self._template_ctrl.get_template_by_id(
+            self._current_template_id
+        )
+        if template is None:
+            QMessageBox.warning(self, "Error", "Template not found in database.")
+            return
+
+        name: str = self._editor_name_input.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Error", "Template name cannot be empty.")
+            return
+
+        template.template_name = name
+        template.canvas_width = self._width_spin.value()
+        template.canvas_height = self._height_spin.value()
+        template.grid_size = self._grid_spin.value()
+        template.snap_to_grid = self._snap_check.isChecked()
+
+        fields = self._canvas.get_fields(self._current_template_id)
+
+        try:
+            self._template_ctrl.save_full_template(template, fields)
+            QMessageBox.information(
+                self, "Saved",
+                f"Template '{name}' saved successfully."
+            )
+            logger.info("Editor saved template id=%d", self._current_template_id)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Error", str(exc))
+
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
@@ -588,6 +726,17 @@ class TemplateEditorView(QWidget):
     # Toolbox button handler
     # ------------------------------------------------------------------
 
+    def _on_add_image(self) -> None:
+        """Open a file dialog to select an image and add it to the canvas."""
+        from PySide6.QtWidgets import QFileDialog
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select Image", "",
+            "Images (*.png *.jpg *.jpeg *.bmp *.gif *.svg);;All Files (*.*)"
+        )
+        if path:
+            self._canvas.add_image_item(path)
+
     def _on_field_button(self, button_text: str) -> None:
         """Handle field / shape toolbox button clicks.
 
@@ -600,6 +749,26 @@ class TemplateEditorView(QWidget):
             self._canvas.add_photo_field()
         elif button_text == "Rectangle":
             self._canvas.add_rectangle()
+        elif button_text == "Circle":
+            self._canvas.add_circle()
+        elif button_text == "Horizontal Line":
+            self._canvas.add_horizontal_line()
+        elif button_text == "Vertical Line":
+            self._canvas.add_vertical_line()
+        elif button_text in ("Image", "Logo"):
+            self._on_add_image()
+
+    # ------------------------------------------------------------------
+    # Card side switching
+    # ------------------------------------------------------------------
+
+    def _on_card_side_changed(self, index: int) -> None:
+        """Switch the canvas background between front and back."""
+        self._canvas._clear_background()
+        if index == 0 and self._front_image:
+            self._canvas.set_background_image(self._front_image)
+        elif index == 1 and self._back_image:
+            self._canvas.set_background_image(self._back_image)
 
     # ------------------------------------------------------------------
     # Selection display
@@ -613,9 +782,13 @@ class TemplateEditorView(QWidget):
         """
         from views.widgets.canvas_items import (
             BaseCanvasItem,
+            CircleItem,
+            HorizontalLineItem,
+            ImageItem,
             PhotoFieldItem,
             RectangleItem,
             TextFieldItem,
+            VerticalLineItem,
         )
 
         if isinstance(item, TextFieldItem):
@@ -624,6 +797,14 @@ class TemplateEditorView(QWidget):
             name = "Photo Field"
         elif isinstance(item, RectangleItem):
             name = "Rectangle"
+        elif isinstance(item, CircleItem):
+            name = "Circle"
+        elif isinstance(item, HorizontalLineItem):
+            name = "Horizontal Line"
+        elif isinstance(item, VerticalLineItem):
+            name = "Vertical Line"
+        elif isinstance(item, ImageItem):
+            name = "Image"
         elif isinstance(item, BaseCanvasItem):
             name = "Canvas Item"
         else:

@@ -25,11 +25,12 @@ def _row_to_card(row: sqlite3.Row) -> GeneratedCard:
         id=row["id"],
         template_id=row["template_id"],
         photo_path=row["photo_path"],
-        name=row["name"],
-        program=row["program"],
-        roll_no=row["roll_no"],
-        cnic=row["cnic"],
-        expiry_date=row["expiry_date"],
+        employee_name=row["employee_name"],
+        designation=row["designation"],
+        employee_category=row["employee_category"],
+        blood_group=row["blood_group"],
+        location=row["location"],
+        dependence=row["dependence"],
         front_output=row["front_output"],
         back_output=row["back_output"],
         combined_pdf=row["combined_pdf"],
@@ -80,18 +81,20 @@ class CardRepository:
         try:
             cursor = self._db.execute(
                 """INSERT INTO cards
-                   (template_id, photo_path, name, program, roll_no,
-                    cnic, expiry_date, front_output, back_output,
-                    combined_pdf, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (template_id, photo_path, employee_name, designation,
+                    employee_category, blood_group, location, dependence,
+                    front_output, back_output, combined_pdf, created_at,
+                    updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     card.template_id,
                     card.photo_path,
-                    card.name,
-                    card.program,
-                    card.roll_no,
-                    card.cnic,
-                    card.expiry_date,
+                    card.employee_name,
+                    card.designation,
+                    card.employee_category,
+                    card.blood_group,
+                    card.location,
+                    card.dependence,
                     card.front_output,
                     card.back_output,
                     card.combined_pdf,
@@ -134,18 +137,20 @@ class CardRepository:
         try:
             self._db.execute(
                 """UPDATE cards SET
-                   template_id = ?, photo_path = ?, name = ?, program = ?,
-                   roll_no = ?, cnic = ?, expiry_date = ?, front_output = ?,
+                   template_id = ?, photo_path = ?, employee_name = ?,
+                   designation = ?, employee_category = ?, blood_group = ?,
+                   location = ?, dependence = ?, front_output = ?,
                    back_output = ?, combined_pdf = ?, updated_at = ?
                    WHERE id = ?""",
                 (
                     card.template_id,
                     card.photo_path,
-                    card.name,
-                    card.program,
-                    card.roll_no,
-                    card.cnic,
-                    card.expiry_date,
+                    card.employee_name,
+                    card.designation,
+                    card.employee_category,
+                    card.blood_group,
+                    card.location,
+                    card.dependence,
                     card.front_output,
                     card.back_output,
                     card.combined_pdf,
@@ -243,7 +248,7 @@ class CardRepository:
             date_to: ISO-8601 end date (inclusive).
             status: ``'Has Output'`` or ``'No Output'``.
             sort_by: Column name to sort by (``'created_at'``,
-                ``'name'``, ``'template_name'``).
+                ``'employee_name'``, ``'template_name'``).
             sort_asc: ``True`` for ascending, ``False`` for descending.
 
         Returns:
@@ -255,10 +260,12 @@ class CardRepository:
         if search_text:
             like_val: str = f"%{search_text}%"
             conditions.append(
-                "(c.name LIKE ? OR c.roll_no LIKE ? OR c.cnic LIKE ? "
+                "(c.employee_name LIKE ? OR c.designation LIKE ? "
+                "OR c.employee_category LIKE ? OR c.blood_group LIKE ? "
+                "OR c.location LIKE ? OR c.dependence LIKE ? "
                 "OR t.template_name LIKE ? OR CAST(c.id AS TEXT) LIKE ?)"
             )
-            params.extend([like_val] * 5)
+            params.extend([like_val] * 8)
 
         if template_id is not None:
             conditions.append("c.template_id = ?")
@@ -288,7 +295,7 @@ class CardRepository:
         # Map sort field to SQL column
         sort_column_map: dict[str, str] = {
             "created_at": "c.created_at",
-            "name": "c.name",
+            "employee_name": "c.employee_name",
             "template_name": "t.template_name",
         }
         sort_col: str = sort_column_map.get(sort_by, "c.created_at")

@@ -73,7 +73,7 @@ class DatabaseManager:
         ensure_directories()
         logger.info("Opening database at %s", self._db_path)
 
-        self._connection = sqlite3.connect(str(self._db_path))
+        self._connection = sqlite3.connect(str(self._db_path), isolation_level=None)
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA journal_mode=WAL")
         self._connection.execute("PRAGMA foreign_keys=ON")
@@ -187,12 +187,16 @@ class DatabaseManager:
     def transaction(self) -> Generator[sqlite3.Connection, None, None]:
         """Context manager that commits on success and rolls back on error.
 
+        With ``isolation_level=None`` the connection is in autocommit
+        mode, so an explicit ``BEGIN`` is required to group statements.
+
         Usage::
 
             with db.transaction() as conn:
                 conn.execute("INSERT INTO templates (name) VALUES (?)", ("My Card",))
         """
         conn: sqlite3.Connection = self.connect()
+        conn.execute("BEGIN")
         try:
             yield conn
             conn.commit()

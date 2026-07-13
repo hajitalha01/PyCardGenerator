@@ -234,6 +234,17 @@ class TemplateController:
             template.template_name,
         )
 
+    def count_templates_by_image(self, image_path: str) -> int:
+        """Count how many templates reference a specific image path.
+
+        Args:
+            image_path: The front_image or back_image path to check.
+
+        Returns:
+            Number of templates that reference this path.
+        """
+        return self._repo.count_templates_by_image(image_path)
+
     def delete_template(self, template_id: int) -> None:
         """Remove a template and its associated fields from the database.
 

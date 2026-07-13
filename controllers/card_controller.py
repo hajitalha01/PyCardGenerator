@@ -135,8 +135,8 @@ class CardController:
         """Search, filter and sort card records.
 
         Args:
-            search_text: Free-text search (name, roll no, CNIC,
-                template name, card ID).
+            search_text: Free-text search (employee name, designation,
+                category, template name, card ID).
             template_id: Filter by template.
             date_from: ISO-8601 start date (inclusive).
             date_to: ISO-8601 end date (inclusive).

@@ -24,10 +24,11 @@ from PySide6.QtGui import QIcon, QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
-    QDateEdit,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QStackedWidget,
     QStatusBar,
@@ -43,6 +44,7 @@ from config.constants import (
     WINDOW_MIN_HEIGHT,
     WINDOW_MIN_WIDTH,
 )
+from controllers.template_controller import TemplateController
 from views.card_generator_view import CardGeneratorView
 from views.card_history_view import CardHistoryView
 from views.dashboard_view import DashboardView
@@ -199,12 +201,36 @@ class MainWindow(QMainWindow):
             A QStackedWidget containing every application view.
         """
         stack: QStackedWidget = QStackedWidget()
-        stack.addWidget(DashboardView())
-        stack.addWidget(CardGeneratorView())
-        stack.addWidget(TemplateManagerView())
-        stack.addWidget(TemplateEditorView())
-        stack.addWidget(CardHistoryView())
-        stack.addWidget(SettingsView())
+
+        self._dashboard_view: DashboardView = DashboardView()
+        self._card_generator_view: CardGeneratorView = CardGeneratorView()
+        self._template_manager_view: TemplateManagerView = TemplateManagerView()
+        self._template_editor_view: TemplateEditorView = TemplateEditorView()
+        self._card_history_view: CardHistoryView = CardHistoryView()
+        self._settings_view: SettingsView = SettingsView()
+
+        stack.addWidget(self._dashboard_view)
+        stack.addWidget(self._card_generator_view)
+        stack.addWidget(self._template_manager_view)
+        stack.addWidget(self._template_editor_view)
+        stack.addWidget(self._card_history_view)
+        stack.addWidget(self._settings_view)
+
+        # Wire template manager open_in_editor → load template + navigate
+        self._template_manager_view.open_in_editor.connect(
+            self._on_open_template_in_editor
+        )
+
+        # Wire template editor save_requested → save template
+        self._template_editor_view.save_requested.connect(
+            self._template_editor_view._on_save
+        )
+
+        # Wire template editor open_requested → show template picker
+        self._template_editor_view.open_requested.connect(
+            self._on_open_template_from_editor
+        )
+
         return stack
 
     # ------------------------------------------------------------------
@@ -285,6 +311,32 @@ class MainWindow(QMainWindow):
             index: The QStackedWidget index of the target page.
         """
         self.navigation_changed.emit(index)
+
+    def _on_open_template_in_editor(self, template_id: int) -> None:
+        """Load a template into the editor and navigate to it.
+
+        Args:
+            template_id: The primary key of the template to load.
+        """
+        self._template_editor_view.load_template(template_id)
+        self._navigate_to(3)  # Template Editor is at index 3
+
+    def _on_open_template_from_editor(self) -> None:
+        """Show a template selection dialog and load the chosen template."""
+        ctrl: TemplateController = TemplateController()
+        templates = ctrl.get_all_templates()
+        if not templates:
+            QMessageBox.information(self, "No Templates", "No templates found in the database.")
+            return
+
+        names: list[str] = [t.template_name for t in templates]
+        name, ok = QInputDialog.getItem(
+            self, "Open Template", "Select a template:", names, 0, False
+        )
+        if ok and name:
+            matching = [t for t in templates if t.template_name == name]
+            if matching and matching[0].id is not None:
+                self._on_open_template_in_editor(matching[0].id)
 
     def _on_navigation_changed(self, index: int) -> None:
         """Perform the view switch and update the sidebar highlight.

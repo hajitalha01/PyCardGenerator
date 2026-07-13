@@ -61,14 +61,14 @@ class CardDataModel:
 
         model = CardDataModel()
         model.load_template_fields(template_fields)
-        model.set_value("name", "John Doe")
+        model.set_value("employee_name", "John Doe")
         model.set_photo(r"C:\\photos\\john.jpg")
-        model.set_template(1, "Student Card")
+        model.set_template(1, "Employee Card")
 
         for name, err in model.validate():
             print(f"{name}: {err}")
 
-        state = model.all_values  # {"name": "John Doe", ...}
+        state = model.all_values  # {"employee_name": "John Doe", ...}
     """
 
     def __init__(self) -> None:

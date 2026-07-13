@@ -7,6 +7,9 @@ action buttons for upload and management.
 """
 
 import logging
+import shutil
+import uuid as uuid_mod
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
@@ -15,6 +18,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
+    QInputDialog,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -27,6 +31,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from config.settings import TEMPLATE_UPLOADS_DIR, is_managed_image, resolve_template_image
+from controllers.template_controller import TemplateController
+from models.template import CardTemplate
 from views.widgets.card_preview_widget import CardPreviewWidget
 
 logger = logging.getLogger(__name__)
@@ -37,31 +44,12 @@ class TemplateManagerView(QWidget):
 
     Signals
     -------
-    template_selected:
-        Emitted when a row in the template table is clicked.
+    open_in_editor:
+        Emitted when the user wants to open a template in the editor.
         Carries the template id.
-    template_created:
-        Emitted when the ``New Template`` button is clicked.
-    template_deleted:
-        Emitted when the ``Delete Template`` button is clicked.
-        Carries the template id.
-    template_updated:
-        Emitted when the ``Save Template`` button is clicked.
-        Carries the template id.
-    front_uploaded:
-        Emitted when a front-design image is selected.
-        Carries the file path.
-    back_uploaded:
-        Emitted when a back-design image is selected.
-        Carries the file path.
     """
 
-    template_selected = Signal(int)
-    template_created = Signal()
-    template_deleted = Signal(int)
-    template_updated = Signal(int)
-    front_uploaded = Signal(str)
-    back_uploaded = Signal(str)
+    open_in_editor = Signal(int)
 
     # ------------------------------------------------------------------
     # Initialisation
@@ -72,13 +60,17 @@ class TemplateManagerView(QWidget):
         super().__init__()
         self.setObjectName("templateManagerView")
 
+        self._template_ctrl: TemplateController = TemplateController()
         self._current_template_id: int | None = None
+        self._current_front_image: str | None = None
+        self._current_back_image: str | None = None
         self._info_name: QLabel = QLabel()
         self._info_resolution: QLabel = QLabel()
         self._info_card_size: QLabel = QLabel()
         self._info_created: QLabel = QLabel()
         self._info_updated: QLabel = QLabel()
         self._setup_ui()
+        self._populate_template_table()
 
     def _setup_ui(self) -> None:
         """Build the complete page layout."""
@@ -231,12 +223,14 @@ class TemplateManagerView(QWidget):
         self._front_preview: CardPreviewWidget = CardPreviewWidget("Front Design")
         self._front_preview.set_placeholder("No front image selected")
         self._front_preview.setMinimumHeight(140)
+        self._front_preview.image_deleted.connect(self._on_front_image_deleted)
         layout.addWidget(self._front_preview)
 
         # --- Back preview ---
         self._back_preview: CardPreviewWidget = CardPreviewWidget("Back Design")
         self._back_preview.set_placeholder("No back image selected")
         self._back_preview.setMinimumHeight(140)
+        self._back_preview.image_deleted.connect(self._on_back_image_deleted)
         layout.addWidget(self._back_preview)
 
         # --- Info section ---
@@ -332,17 +326,17 @@ class TemplateManagerView(QWidget):
         row1: QHBoxLayout = QHBoxLayout()
         row1.setSpacing(8)
 
-        upload_front: QPushButton = QPushButton("Upload Front Design")
-        upload_front.setObjectName("actionButton")
-        upload_front.setCursor(Qt.CursorShape.PointingHandCursor)
-        upload_front.clicked.connect(lambda: self._on_upload_image("front"))
-        row1.addWidget(upload_front)
+        self._upload_front_btn: QPushButton = QPushButton("Upload Front Design")
+        self._upload_front_btn.setObjectName("actionButton")
+        self._upload_front_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._upload_front_btn.clicked.connect(lambda: self._on_upload_image("front"))
+        row1.addWidget(self._upload_front_btn)
 
-        upload_back: QPushButton = QPushButton("Upload Back Design")
-        upload_back.setObjectName("actionButton")
-        upload_back.setCursor(Qt.CursorShape.PointingHandCursor)
-        upload_back.clicked.connect(lambda: self._on_upload_image("back"))
-        row1.addWidget(upload_back)
+        self._upload_back_btn: QPushButton = QPushButton("Upload Back Design")
+        self._upload_back_btn.setObjectName("actionButton")
+        self._upload_back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._upload_back_btn.clicked.connect(lambda: self._on_upload_image("back"))
+        row1.addWidget(self._upload_back_btn)
 
         row1.addStretch()
         layout.addLayout(row1)
@@ -353,37 +347,69 @@ class TemplateManagerView(QWidget):
 
         self._open_editor_btn: QPushButton = QPushButton("Open Template Editor")
         self._open_editor_btn.setObjectName("actionButton")
+        self._open_editor_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._open_editor_btn.setEnabled(False)
+        self._open_editor_btn.clicked.connect(self._on_open_editor)
         row2.addWidget(self._open_editor_btn)
 
         self._save_btn: QPushButton = QPushButton("Save Template")
         self._save_btn.setObjectName("actionButton")
+        self._save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._save_btn.setEnabled(False)
-        self._save_btn.clicked.connect(
-            lambda: self.template_updated.emit(self._current_template_id or 0)
-        )
+        self._save_btn.clicked.connect(self._on_save_template)
         row2.addWidget(self._save_btn)
 
-        delete_btn: QPushButton = QPushButton("Delete Template")
-        delete_btn.setObjectName("actionButton")
-        delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        delete_btn.clicked.connect(
-            lambda: self.template_deleted.emit(self._current_template_id or 0)
-        )
-        row2.addWidget(delete_btn)
+        self._delete_btn: QPushButton = QPushButton("Delete Template")
+        self._delete_btn.setObjectName("actionButton")
+        self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._delete_btn.setEnabled(False)
+        self._delete_btn.clicked.connect(self._on_delete_selected)
+        row2.addWidget(self._delete_btn)
 
-        duplicate_btn: QPushButton = QPushButton("Duplicate Template")
-        duplicate_btn.setObjectName("actionButton")
-        duplicate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        duplicate_btn.clicked.connect(
-            lambda: self.template_created.emit()
-        )
-        row2.addWidget(duplicate_btn)
+        self._duplicate_btn: QPushButton = QPushButton("Duplicate Template")
+        self._duplicate_btn.setObjectName("actionButton")
+        self._duplicate_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._duplicate_btn.setEnabled(False)
+        self._duplicate_btn.clicked.connect(self._on_duplicate_selected)
+        row2.addWidget(self._duplicate_btn)
 
         row2.addStretch()
         layout.addLayout(row2)
 
         return section
+
+    # ------------------------------------------------------------------
+    # Table population
+    # ------------------------------------------------------------------
+
+    def _populate_template_table(self) -> None:
+        """Load all templates from the database and populate the table."""
+        self._table.setRowCount(0)
+        templates: list[CardTemplate] = self._template_ctrl.get_all_templates()
+
+        for row_idx, tpl in enumerate(templates):
+            self._table.insertRow(row_idx)
+
+            name_item: QTableWidgetItem = QTableWidgetItem(tpl.template_name)
+            name_item.setData(Qt.ItemDataRole.UserRole, tpl.id)
+            self._table.setItem(row_idx, 0, name_item)
+
+            has_front: bool = bool(tpl.front_image)
+            has_back: bool = bool(tpl.back_image)
+            if has_front and has_back:
+                status: str = "Ready"
+            elif has_front or has_back:
+                status = "Partial"
+            else:
+                status = "Empty"
+            status_item: QTableWidgetItem = QTableWidgetItem(status)
+            status_item.setData(Qt.ItemDataRole.UserRole, tpl.id)
+            self._table.setItem(row_idx, 1, status_item)
+
+            updated_str: str = tpl.updated_at or "--"
+            updated_item: QTableWidgetItem = QTableWidgetItem(updated_str)
+            updated_item.setData(Qt.ItemDataRole.UserRole, tpl.id)
+            self._table.setItem(row_idx, 2, updated_item)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -401,7 +427,7 @@ class TemplateManagerView(QWidget):
         return line
 
     # ------------------------------------------------------------------
-    # Slots
+    # Slots — toolbar
     # ------------------------------------------------------------------
 
     def _on_toolbar_action(self, action: str) -> None:
@@ -412,16 +438,348 @@ class TemplateManagerView(QWidget):
                 ``'duplicate'``, ``'refresh'``.
         """
         if action == "new":
-            self.template_created.emit()
-        elif action == "edit" and self._current_template_id is not None:
-            self.template_updated.emit(self._current_template_id)
-        elif action == "delete" and self._current_template_id is not None:
-            if self._confirm_delete(self._current_template_id):
-                self.template_deleted.emit(self._current_template_id)
+            self._on_new_template()
+        elif action == "edit":
+            self._on_open_editor()
+        elif action == "delete":
+            self._on_delete_selected()
         elif action == "duplicate":
-            self.template_created.emit()
+            self._on_duplicate_selected()
         elif action == "refresh":
-            pass  # will reload from database later
+            self._populate_template_table()
+            self._clear_details()
+            logger.info("Template list refreshed")
+
+    # ------------------------------------------------------------------
+    # Slots — actions
+    # ------------------------------------------------------------------
+
+    def _on_new_template(self) -> None:
+        """Create a new blank template."""
+        name: str
+        ok: bool
+        name, ok = QInputDialog.getText(
+            self, "New Template", "Enter template name:"
+        )
+        if not ok or not name.strip():
+            return
+
+        try:
+            tpl: CardTemplate = self._template_ctrl.create_template(name.strip())
+            self._populate_template_table()
+            self._current_template_id = tpl.id
+            self._current_front_image = None
+            self._current_back_image = None
+            self._save_btn.setEnabled(True)
+            self._open_editor_btn.setEnabled(True)
+            logger.info("Created new template id=%d name='%s'", tpl.id, tpl.template_name)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Error", str(exc))
+
+    def _on_open_editor(self) -> None:
+        """Open the selected template in the Template Editor."""
+        if self._current_template_id is None:
+            QMessageBox.information(
+                self, "No Selection",
+                "Please select a template first."
+            )
+            return
+        self.open_in_editor.emit(self._current_template_id)
+
+    def _on_save_template(self) -> None:
+        """Save the current template configuration."""
+        if self._current_template_id is None:
+            return
+
+        template: CardTemplate | None = self._template_ctrl.get_template_by_id(
+            self._current_template_id
+        )
+        if template is None:
+            QMessageBox.warning(self, "Error", "Template not found in database.")
+            return
+
+        try:
+            if self._current_front_image is not None:
+                template.front_image = self._current_front_image
+            if self._current_back_image is not None:
+                template.back_image = self._current_back_image
+            self._template_ctrl.update_template(template)
+            self._populate_template_table()
+            QMessageBox.information(
+                self, "Saved",
+                f"Template '{template.template_name}' saved successfully. "
+                "Ready to create a new template."
+            )
+            logger.info("Saved template id=%d", template.id)
+            self._clear_details()
+            self._table.clearSelection()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Error", str(exc))
+
+    def _on_delete_selected(self) -> None:
+        """Delete the selected template after confirmation."""
+        if self._current_template_id is None:
+            QMessageBox.information(
+                self, "No Selection",
+                "Please select a template first."
+            )
+            return
+
+        if not self._confirm_delete(self._current_template_id):
+            return
+
+        # Capture image paths for cleanup after deletion
+        template: CardTemplate | None = self._template_ctrl.get_template_by_id(
+            self._current_template_id
+        )
+
+        try:
+            self._template_ctrl.delete_template(self._current_template_id)
+            self._populate_template_table()
+            self._clear_details()
+            logger.info("Deleted template id=%d", self._current_template_id)
+            self._current_template_id = None
+        except Exception as exc:
+            QMessageBox.warning(self, "Error", f"Could not delete template:\n{exc}")
+            return
+
+        # Clean up managed images if no other template references them
+        if template is not None:
+            self._delete_managed_image_if_unused(template.front_image)
+            self._delete_managed_image_if_unused(template.back_image)
+
+    def _on_duplicate_selected(self) -> None:
+        """Duplicate the selected template with a new name."""
+        if self._current_template_id is None:
+            QMessageBox.information(
+                self, "No Selection",
+                "Please select a template first."
+            )
+            return
+
+        source: CardTemplate | None = self._template_ctrl.get_template_by_id(
+            self._current_template_id
+        )
+        if source is None:
+            QMessageBox.warning(self, "Error", "Source template not found.")
+            return
+
+        name: str
+        ok: bool
+        name, ok = QInputDialog.getText(
+            self, "Duplicate Template",
+            f"Enter a name for the copy of '{source.template_name}':",
+            text=f"{source.template_name} (Copy)",
+        )
+        if not ok or not name.strip():
+            return
+
+        try:
+            self._template_ctrl.duplicate_template(
+                self._current_template_id, name.strip()
+            )
+            self._populate_template_table()
+            logger.info(
+                "Duplicated template id=%d as '%s'",
+                self._current_template_id, name.strip()
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Error", str(exc))
+
+    # ------------------------------------------------------------------
+    # Slots — upload
+    # ------------------------------------------------------------------
+
+    def _on_upload_image(self, side: str) -> None:
+        """Open a file dialog to select a design image.
+
+        Copies the selected image into the project's managed upload
+        directory (``uploads/templates/``) with a unique filename,
+        then stores the relative path for later saving.
+
+        Args:
+            side: ``'front'`` or ``'back'``.
+        """
+        source_path: str
+        source_path, _ = QFileDialog.getOpenFileName(
+            self,
+            f"Upload {side.title()} Design",
+            "",
+            "Images (*.png *.jpg *.jpeg *.bmp)",
+        )
+        if not source_path:
+            return
+
+        pixmap: QPixmap = QPixmap(source_path)
+        if pixmap.isNull():
+            return
+
+        # Copy the file into the managed uploads directory
+        ext: str = Path(source_path).suffix or ".png"
+        unique_name: str = f"{uuid_mod.uuid4().hex}_{side}{ext}"
+        dest: Path = TEMPLATE_UPLOADS_DIR / unique_name
+        try:
+            shutil.copy2(source_path, str(dest))
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "Upload Error",
+                f"Failed to copy image:\n{exc}"
+            )
+            return
+
+        # Build the relative path for database storage
+        relative_dest: str = str(dest.relative_to(TEMPLATE_UPLOADS_DIR.parent.parent))
+        # relative_dest is e.g. "uploads/templates/abc123_front.png"
+
+        # Remove the old managed file if one existed for this slot
+        old_path: str | None = (
+            self._current_front_image if side == "front" else self._current_back_image
+        )
+        self._delete_managed_image(old_path)
+
+        if side == "front":
+            self._front_preview.set_pixmap(pixmap)
+            self._current_front_image = relative_dest
+        else:
+            self._back_preview.set_pixmap(pixmap)
+            self._current_back_image = relative_dest
+
+        self._info_resolution.setText(f"{pixmap.width()} \u00d7 {pixmap.height()} px")
+        self._save_btn.setEnabled(self._current_template_id is not None)
+
+    # ------------------------------------------------------------------
+    # Image deletion
+    # ------------------------------------------------------------------
+
+    def _on_front_image_deleted(self) -> None:
+        """Clear the front image selection and remove the managed copy."""
+        self._delete_managed_image(self._current_front_image)
+        self._current_front_image = None
+        self._front_preview.set_pixmap(None)
+
+    def _on_back_image_deleted(self) -> None:
+        """Clear the back image selection and remove the managed copy."""
+        self._delete_managed_image(self._current_back_image)
+        self._current_back_image = None
+        self._back_preview.set_pixmap(None)
+
+    # ------------------------------------------------------------------
+    # Image file management
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _delete_managed_image(path: str | None) -> None:
+        """Delete a managed image file from the uploads directory.
+
+        Only files inside :attr:`TEMPLATE_UPLOADS_DIR` are removed.
+        The user's original source file is never touched.
+        """
+        if not is_managed_image(path):
+            return
+        try:
+            Path(path).unlink(missing_ok=True)
+            logger.debug("Deleted managed image: %s", path)
+        except OSError as exc:
+            logger.warning("Could not delete managed image %s: %s", path, exc)
+
+    def _delete_managed_image_if_unused(self, path: str | None) -> None:
+        """Delete a managed image only if no other template references it."""
+        if not is_managed_image(path):
+            return
+        count: int = self._template_ctrl.count_templates_by_image(path)
+        if count == 0:
+            self._delete_managed_image(path)
+
+    # ------------------------------------------------------------------
+    # Selection
+    # ------------------------------------------------------------------
+
+    def _on_selection_changed(self) -> None:
+        """Update the details panel when a different row is selected."""
+        selected: list[QTableWidgetItem] = self._table.selectedItems()
+        if not selected:
+            return
+
+        row: int = selected[0].row()
+        name_item: QTableWidgetItem | None = self._table.item(row, 0)
+        if name_item is None:
+            return
+
+        template_id: int = name_item.data(Qt.ItemDataRole.UserRole)
+        if template_id is None:
+            return
+
+        self._current_template_id = template_id
+        self._current_front_image = None
+        self._current_back_image = None
+
+        template: CardTemplate | None = self._template_ctrl.get_template_by_id(
+            template_id
+        )
+        if template is None:
+            return
+
+        # Update information labels
+        self._info_name.setText(template.template_name)
+        self._info_card_size.setText(
+            f"{template.canvas_width} \u00d7 {template.canvas_height} mm"
+        )
+        self._info_created.setText(template.created_at or "--")
+        self._info_updated.setText(template.updated_at or "--")
+
+        # Update front preview
+        front_path: str | None = resolve_template_image(template.front_image)
+        if front_path:
+            pix: QPixmap = QPixmap(front_path)
+            if not pix.isNull():
+                self._front_preview.set_pixmap(pix)
+                self._info_resolution.setText(f"{pix.width()} \u00d7 {pix.height()} px")
+            else:
+                self._front_preview.set_placeholder("No front image selected")
+        else:
+            if template.front_image:
+                logger.warning("Front image missing: %s", template.front_image)
+            self._front_preview.set_placeholder("No front image selected")
+
+        # Update back preview
+        back_path: str | None = resolve_template_image(template.back_image)
+        if back_path:
+            pix = QPixmap(back_path)
+            if not pix.isNull():
+                self._back_preview.set_pixmap(pix)
+            else:
+                self._back_preview.set_placeholder("No back image selected")
+        else:
+            if template.back_image:
+                logger.warning("Back image missing: %s", template.back_image)
+            self._back_preview.set_placeholder("No back image selected")
+
+        # Enable detail buttons
+        self._open_editor_btn.setEnabled(True)
+        self._save_btn.setEnabled(True)
+        self._delete_btn.setEnabled(True)
+        self._duplicate_btn.setEnabled(True)
+
+    def _clear_details(self) -> None:
+        """Reset the details panel to its default state."""
+        self._current_template_id = None
+        self._current_front_image = None
+        self._current_back_image = None
+        self._info_name.setText("--")
+        self._info_resolution.setText("--")
+        self._info_card_size.setText("85.6 \u00d7 54.0 mm")
+        self._info_created.setText("--")
+        self._info_updated.setText("--")
+        self._front_preview.set_placeholder("No front image selected")
+        self._back_preview.set_placeholder("No back image selected")
+        self._open_editor_btn.setEnabled(False)
+        self._save_btn.setEnabled(False)
+        self._delete_btn.setEnabled(False)
+        self._duplicate_btn.setEnabled(False)
+
+    # ------------------------------------------------------------------
+    # Confirmation
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _confirm_delete(template_id: int) -> bool:
@@ -443,55 +801,3 @@ class TemplateManagerView(QWidget):
             QMessageBox.StandardButton.No,
         )
         return result == QMessageBox.StandardButton.Yes
-
-    def _on_selection_changed(self) -> None:
-        """Update the details panel when a different row is selected."""
-        rows: list[int] = self._table.selectedItems()
-        if not rows:
-            return
-        row: int = rows[0].row()
-        item: QTableWidgetItem | None = self._table.item(row, 0)
-        if item is None:
-            return
-
-        self._current_template_id = row + 1  # placeholder id
-        self.template_selected.emit(self._current_template_id)
-
-        # Update information labels with dummy data
-        self._info_name.setText(item.text())
-        self._info_resolution.setText("600 \u00d7 379 px")
-        self._info_created.setText("2026-07-12")
-        self._info_updated.setText("2026-07-12")
-
-    def _on_upload_image(self, side: str) -> None:
-        """Open a file dialog to select a design image.
-
-        Loads the selected image into the corresponding preview
-        widget and emits the appropriate signal.
-
-        Args:
-            side: ``'front'`` or ``'back'``.
-        """
-        path: str
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            f"Upload {side.title()} Design",
-            "",
-            "Images (*.png *.jpg *.jpeg *.bmp)",
-        )
-        if not path:
-            return
-
-        pixmap: QPixmap = QPixmap(path)
-        if pixmap.isNull():
-            return
-
-        if side == "front":
-            self._front_preview.set_pixmap(pixmap)
-            self.front_uploaded.emit(path)
-        else:
-            self._back_preview.set_pixmap(pixmap)
-            self.back_uploaded.emit(path)
-
-        # Update resolution info
-        self._info_resolution.setText(f"{pixmap.width()} \u00d7 {pixmap.height()} px")

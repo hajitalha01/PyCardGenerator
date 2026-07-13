@@ -13,10 +13,9 @@ reaching the preview or any downstream engine.
 
 import logging
 
-from PySide6.QtCore import Qt, QDate
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
-    QDateEdit,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -138,19 +137,21 @@ class CardGeneratorView(QWidget):
 
     def _bind_form_widgets(self) -> None:
         """Connect every form widget to the ``BindingManager``."""
-        self._form_binder.bind_text_field(self._name_input, "name")
+        self._form_binder.bind_text_field(self._name_input, "employee_name")
         self._form_binder.bind_text_field(
-            self._program_input, "program"
+            self._designation_input, "designation"
         )
         self._form_binder.bind_text_field(
-            self._roll_input, "roll_no"
+            self._category_input, "employee_category"
         )
-        self._form_binder.bind_text_field(self._cnic_input, "cnic")
-        self._form_binder.bind_date_field(
-            self._issue_date, "issue_date"
+        self._form_binder.bind_text_field(
+            self._blood_group_input, "blood_group"
         )
-        self._form_binder.bind_date_field(
-            self._expiry_date, "expiry_date"
+        self._form_binder.bind_text_field(
+            self._location_input, "location"
+        )
+        self._form_binder.bind_text_field(
+            self._dependence_input, "dependence"
         )
         self._form_binder.bind_template_combo(self._template_combo)
 
@@ -233,59 +234,60 @@ class CardGeneratorView(QWidget):
         """Build the labelled input fields.
 
         Returns:
-            A QFormLayout containing Name, Program, Roll No, CNIC,
-            Issue Date, Expiry Date and Template selector.
+            A QFormLayout containing Employee Name, Designation,
+            Employee Category, Blood Group, Location, Dependence
+            and Template selector.
         """
         layout: QFormLayout = QFormLayout()
         layout.setSpacing(10)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        # --- Name ---
+        # --- Employee Name ---
         self._name_input = QLineEdit()
         self._name_input.setObjectName("fieldInput")
         self._name_input.setPlaceholderText("e.g. John Doe")
-        self._name_input.setToolTip("Cardholder full name (required)")
-        layout.addRow("Name:", self._name_input)
+        self._name_input.setToolTip("Employee full name (required)")
+        layout.addRow("Employee Name:", self._name_input)
         self._field_inputs.append(self._name_input)
 
-        # --- Program ---
-        self._program_input = QLineEdit()
-        self._program_input.setObjectName("fieldInput")
-        self._program_input.setPlaceholderText("e.g. Computer Science")
-        self._program_input.setToolTip("Programme or department name (required)")
-        layout.addRow("Program:", self._program_input)
-        self._field_inputs.append(self._program_input)
+        # --- Designation ---
+        self._designation_input = QLineEdit()
+        self._designation_input.setObjectName("fieldInput")
+        self._designation_input.setPlaceholderText("e.g. Software Engineer")
+        self._designation_input.setToolTip("Designation (required)")
+        layout.addRow("Designation:", self._designation_input)
+        self._field_inputs.append(self._designation_input)
 
-        # --- Roll Number ---
-        self._roll_input = QLineEdit()
-        self._roll_input.setObjectName("fieldInput")
-        self._roll_input.setPlaceholderText("e.g. CS-2024-001")
-        self._roll_input.setToolTip("Student or employee roll number (required)")
-        layout.addRow("Roll No:", self._roll_input)
-        self._field_inputs.append(self._roll_input)
+        # --- Employee Category ---
+        self._category_input = QLineEdit()
+        self._category_input.setObjectName("fieldInput")
+        self._category_input.setPlaceholderText("e.g. Permanent")
+        self._category_input.setToolTip("Employee category (required)")
+        layout.addRow("Employee Category:", self._category_input)
+        self._field_inputs.append(self._category_input)
 
-        # --- CNIC ---
-        self._cnic_input = QLineEdit()
-        self._cnic_input.setObjectName("fieldInput")
-        self._cnic_input.setInputMask("00000-0000000-1;_")
-        self._cnic_input.setPlaceholderText("12345-1234567-1")
-        self._cnic_input.setToolTip("National ID number (optional)")
-        layout.addRow("CNIC:", self._cnic_input)
+        # --- Blood Group ---
+        self._blood_group_input = QLineEdit()
+        self._blood_group_input.setObjectName("fieldInput")
+        self._blood_group_input.setPlaceholderText("e.g. A+")
+        self._blood_group_input.setToolTip("Blood group")
+        layout.addRow("Blood Group:", self._blood_group_input)
 
-        # --- Issue Date ---
-        self._issue_date = QDateEdit()
-        self._issue_date.setObjectName("fieldInput")
-        self._issue_date.setCalendarPopup(True)
-        self._issue_date.setDate(QDate.currentDate())
-        layout.addRow("Issue Date:", self._issue_date)
+        # --- Location ---
+        self._location_input = QLineEdit()
+        self._location_input.setObjectName("fieldInput")
+        self._location_input.setPlaceholderText("e.g. Head Office")
+        self._location_input.setToolTip("Location (required)")
+        layout.addRow("Location:", self._location_input)
+        self._field_inputs.append(self._location_input)
 
-        # --- Expiry Date ---
-        self._expiry_date = QDateEdit()
-        self._expiry_date.setObjectName("fieldInput")
-        self._expiry_date.setCalendarPopup(True)
-        self._expiry_date.setDate(QDate.currentDate().addYears(1))
-        layout.addRow("Expiry Date:", self._expiry_date)
+        # --- Dependence ---
+        self._dependence_input = QLineEdit()
+        self._dependence_input.setObjectName("fieldInput")
+        self._dependence_input.setPlaceholderText("e.g. Self")
+        self._dependence_input.setToolTip("Dependence")
+        layout.addRow("Dependence:", self._dependence_input)
 
         # --- Template ---
         self._template_combo = QComboBox()
@@ -561,16 +563,20 @@ class CardGeneratorView(QWidget):
         self._clear_field_highlights()
 
         if not self._name_input.text().strip():
-            errors.append("Name is required")
+            errors.append("Employee Name is required")
             self._highlight_field(self._name_input)
 
-        if not self._program_input.text().strip():
-            errors.append("Program is required")
-            self._highlight_field(self._program_input)
+        if not self._designation_input.text().strip():
+            errors.append("Designation is required")
+            self._highlight_field(self._designation_input)
 
-        if not self._roll_input.text().strip():
-            errors.append("Roll No is required")
-            self._highlight_field(self._roll_input)
+        if not self._category_input.text().strip():
+            errors.append("Employee Category is required")
+            self._highlight_field(self._category_input)
+
+        if not self._location_input.text().strip():
+            errors.append("Location is required")
+            self._highlight_field(self._location_input)
 
         if self._template_combo.currentIndex() <= 0:
             errors.append("Please select a template")
@@ -718,11 +724,11 @@ class CardGeneratorView(QWidget):
             return
 
         self._name_input.clear()
-        self._program_input.clear()
-        self._roll_input.clear()
-        self._cnic_input.clear()
-        self._issue_date.setDate(QDate.currentDate())
-        self._expiry_date.setDate(QDate.currentDate().addYears(1))
+        self._designation_input.clear()
+        self._category_input.clear()
+        self._blood_group_input.clear()
+        self._location_input.clear()
+        self._dependence_input.clear()
         self._template_combo.setCurrentIndex(0)
 
         self._photo_path = ""

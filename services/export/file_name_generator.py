@@ -19,9 +19,9 @@ class FileNameGenerator:
 
         # Suggested name for a front-card PNG
         name = FileNameGenerator.generate_front_name(
-            {"name": "John Doe", "roll_no": "CS-001"}, ".png"
+            {"employee_name": "John Doe"}, ".png"
         )
-        # -> "JohnDoe_CS-001_Front.png"
+        # -> "JohnDoe_Front.png"
 
         # Avoid overwrites
         unique = FileNameGenerator.ensure_unique(
@@ -40,7 +40,7 @@ class FileNameGenerator:
     def _get_identifier(cls, field_data: dict[str, str]) -> str:
         """Build a short identifier from the field data.
 
-        Uses ``name`` and ``roll_no`` when available; falls back to
+        Uses ``employee_name`` when available; falls back to
         ``"Card"``.
 
         Args:
@@ -49,10 +49,7 @@ class FileNameGenerator:
         Returns:
             A human-readable identifier string.
         """
-        name: str = field_data.get("name", "").strip()
-        roll: str = field_data.get("roll_no", "").strip()
-        if name and roll:
-            return f"{name}_{roll}"
+        name: str = field_data.get("employee_name", "").strip()
         if name:
             return name
         return cls._DEFAULT_IDENTIFIER

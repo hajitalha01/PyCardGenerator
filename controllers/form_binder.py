@@ -24,9 +24,8 @@ class FormBinder:
 
         binder = FormBinder(binding_manager)
 
-        binder.bind_text_field(name_input, "name")
-        binder.bind_text_field(program_input, "program")
-        binder.bind_date_field(issue_date, "issue_date")
+        binder.bind_text_field(name_input, "employee_name")
+        binder.bind_text_field(designation_input, "designation")
         binder.bind_template_combo(template_combo)
     """
 

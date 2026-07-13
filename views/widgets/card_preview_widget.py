@@ -5,9 +5,9 @@ aspect ratio (85.6 × 54.0 mm).  Supports both placeholder text
 and QPixmap content for future rendering integration.
 """
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap, QResizeEvent
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from config.constants import CARD_HEIGHT_MM, CARD_WIDTH_MM
 
@@ -18,12 +18,20 @@ class CardPreviewWidget(QWidget):
     Displays a title, then a card-shaped frame that shows either
     placeholder text or a scaled QPixmap.
 
+    Provides a delete button overlayed at the top-right corner of
+    the card frame when an image is displayed.  Clicking it emits
+    :attr:`image_deleted`.
+
     Usage::
 
         preview = CardPreviewWidget("Front Card")
         preview.set_placeholder("No Front Template Selected")
         preview.set_pixmap(qpixmap)   # when rendering is wired
+
+        preview.image_deleted.connect(cleanup_function)
     """
+
+    image_deleted = Signal()
 
     _ASPECT: float = CARD_WIDTH_MM / CARD_HEIGHT_MM
 
@@ -52,8 +60,9 @@ class CardPreviewWidget(QWidget):
         self._card_frame.setObjectName("cardFrame")
         self._card_frame.setMinimumSize(160, 100)
 
-        frame_layout: QVBoxLayout = QVBoxLayout(self._card_frame)
+        frame_layout: QGridLayout = QGridLayout(self._card_frame)
         frame_layout.setContentsMargins(8, 8, 8, 8)
+        frame_layout.setSpacing(0)
 
         self._display: QLabel = QLabel(self._placeholder_text)
         self._display.setObjectName("cardPlaceholder")
@@ -61,7 +70,22 @@ class CardPreviewWidget(QWidget):
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter
         )
         self._display.setWordWrap(True)
-        frame_layout.addWidget(self._display)
+        frame_layout.addWidget(self._display, 0, 0)
+        frame_layout.setRowStretch(0, 1)
+        frame_layout.setColumnStretch(0, 1)
+
+        self._delete_btn: QPushButton = QPushButton("\u2715")
+        self._delete_btn.setObjectName("previewDeleteBtn")
+        self._delete_btn.setFixedSize(28, 28)
+        self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._delete_btn.setToolTip("Remove image")
+        self._delete_btn.hide()
+        self._delete_btn.clicked.connect(self.image_deleted.emit)
+
+        frame_layout.addWidget(
+            self._delete_btn, 0, 0,
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight
+        )
 
         layout.addWidget(self._card_frame, stretch=1)
 
@@ -79,6 +103,9 @@ class CardPreviewWidget(QWidget):
         """
         self._pixmap = pixmap
         self._update_display()
+        self._delete_btn.setVisible(
+            pixmap is not None and not pixmap.isNull()
+        )
 
     def set_placeholder(self, text: str) -> None:
         """Change the placeholder text shown when no pixmap is set.
@@ -101,7 +128,9 @@ class CardPreviewWidget(QWidget):
 
     def _update_display(self) -> None:
         """Scale the current pixmap to fit the frame or show placeholder."""
-        if self._pixmap is not None and not self._pixmap.isNull():
+        has_image: bool = self._pixmap is not None and not self._pixmap.isNull()
+
+        if has_image:
             # Leave a 4 px margin inside the frame border
             margin: int = 4
             target_w: int = self._card_frame.width() - margin * 2
@@ -116,3 +145,5 @@ class CardPreviewWidget(QWidget):
             self._display.setPixmap(scaled)
         else:
             self._display.setText(self._placeholder_text)
+
+        self._delete_btn.setVisible(has_image)

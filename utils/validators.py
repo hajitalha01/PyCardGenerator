@@ -87,48 +87,6 @@ def validate_name(value: str) -> tuple[bool, str]:
     return True, ""
 
 
-def validate_roll_number(value: str) -> tuple[bool, str]:
-    """Validate a student / employee roll number.
-
-    Rules:
-        - Must not be empty.
-        - Alphanumeric, hyphens, and forward slashes only.
-        - Length between 2 and 30 characters.
-
-    Args:
-        value: The roll number string to validate.
-
-    Returns:
-        ``(True, "")`` on success, ``(False, error_message)`` on failure.
-    """
-    if not value or not value.strip():
-        return False, "Roll number is required."
-    if len(value) > 30:
-        return False, "Roll number must not exceed 30 characters."
-    if not re.match(r"^[A-Za-z0-9\-/]+$", value.strip()):
-        return False, "Roll number contains invalid characters."
-    return True, ""
-
-
-def validate_cnic(value: str) -> tuple[bool, str]:
-    """Validate a CNIC (Computerised National Identity Card) number.
-
-    Expected format: ``12345-1234567-1`` (5 digits, 7 digits, 1 digit).
-
-    Args:
-        value: The CNIC string to validate.
-
-    Returns:
-        ``(True, "")`` on success, ``(False, error_message)`` on failure.
-    """
-    if not value or not value.strip():
-        return False, "CNIC is required."
-    pattern: str = r"^\d{5}-\d{7}-\d{1}$"
-    if not re.match(pattern, value.strip()):
-        return False, "CNIC must follow the format 12345-1234567-1."
-    return True, ""
-
-
 def validate_date(value: str) -> tuple[bool, str]:
     """Validate a date string in ``YYYY-MM-DD`` format.
 

@@ -18,7 +18,6 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
-    QDateEdit,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -119,33 +118,23 @@ class _EditInfoDialog(QDialog):
         form: QFormLayout = QFormLayout()
         form.setSpacing(8)
 
-        self._name_edit: QLineEdit = QLineEdit(card.name or "")
-        form.addRow("Name:", self._name_edit)
+        self._name_edit: QLineEdit = QLineEdit(card.employee_name or "")
+        form.addRow("Employee Name:", self._name_edit)
 
-        self._program_edit: QLineEdit = QLineEdit(card.program or "")
-        form.addRow("Program:", self._program_edit)
+        self._designation_edit: QLineEdit = QLineEdit(card.designation or "")
+        form.addRow("Designation:", self._designation_edit)
 
-        self._roll_edit: QLineEdit = QLineEdit(card.roll_no or "")
-        form.addRow("Roll No:", self._roll_edit)
+        self._category_edit: QLineEdit = QLineEdit(card.employee_category or "")
+        form.addRow("Employee Category:", self._category_edit)
 
-        self._cnic_edit: QLineEdit = QLineEdit(card.cnic or "")
-        form.addRow("CNIC:", self._cnic_edit)
+        self._blood_group_edit: QLineEdit = QLineEdit(card.blood_group or "")
+        form.addRow("Blood Group:", self._blood_group_edit)
 
-        self._expiry_edit: QDateEdit = QDateEdit()
-        self._expiry_edit.setCalendarPopup(True)
-        self._expiry_edit.setDisplayFormat("yyyy-MM-dd")
-        self._expiry_edit.setSpecialValueText("--")
-        if card.expiry_date:
-            try:
-                dt: datetime = datetime.fromisoformat(card.expiry_date)
-                self._expiry_edit.setDate(dt.date())
-            except (ValueError, TypeError):
-                self._expiry_edit.setDate(
-                    datetime.now(timezone.utc).date()
-                )
-        else:
-            self._expiry_edit.setDate(datetime.now(timezone.utc).date())
-        form.addRow("Expiry Date:", self._expiry_edit)
+        self._location_edit: QLineEdit = QLineEdit(card.location or "")
+        form.addRow("Location:", self._location_edit)
+
+        self._dependence_edit: QLineEdit = QLineEdit(card.dependence or "")
+        form.addRow("Dependence:", self._dependence_edit)
 
         layout.addLayout(form)
 
@@ -166,11 +155,12 @@ class _EditInfoDialog(QDialog):
             id=self._card.id,
             template_id=self._card.template_id,
             photo_path=self._card.photo_path,
-            name=self._name_edit.text().strip(),
-            program=self._program_edit.text().strip(),
-            roll_no=self._roll_edit.text().strip(),
-            cnic=self._cnic_edit.text().strip(),
-            expiry_date=self._expiry_edit.date().toString("yyyy-MM-dd"),
+            employee_name=self._name_edit.text().strip(),
+            designation=self._designation_edit.text().strip(),
+            employee_category=self._category_edit.text().strip(),
+            blood_group=self._blood_group_edit.text().strip(),
+            location=self._location_edit.text().strip(),
+            dependence=self._dependence_edit.text().strip(),
             front_output=self._card.front_output,
             back_output=self._card.back_output,
             combined_pdf=self._card.combined_pdf,
@@ -399,7 +389,7 @@ class CardHistoryView(QWidget):
         self._search_input: QLineEdit = QLineEdit()
         self._search_input.setObjectName("historySearchInput")
         self._search_input.setPlaceholderText(
-            "Search by name, roll number, CNIC, template name or card ID..."
+            "Search by employee name, designation, category, template name or card ID..."
         )
         self._search_input.setClearButtonEnabled(True)
         self._search_input.textChanged.connect(self._on_search_text_changed)
@@ -586,7 +576,7 @@ class CardHistoryView(QWidget):
         )
         self._table.setObjectName("historyTable")
         self._table.setHorizontalHeaderLabels([
-            "", "Card ID", "Person Name", "Template Name",
+            "", "Card ID", "Employee Name", "Template Name",
             "Generated Date", "Status",
         ])
         self._table.setSelectionBehavior(
@@ -648,7 +638,7 @@ class CardHistoryView(QWidget):
         """
         sort_map: dict[int, str] = {
             self._COL_CARD_ID: "created_at",
-            self._COL_NAME: "name",
+            self._COL_NAME: "employee_name",
             self._COL_TEMPLATE: "template_name",
             self._COL_DATE: "created_at",
             self._COL_STATUS: "created_at",
@@ -785,7 +775,7 @@ class CardHistoryView(QWidget):
 
             # Name
             name_item: QTableWidgetItem = QTableWidgetItem(
-                card.name or "--"
+                card.employee_name or "--"
             )
             name_item.setData(Qt.ItemDataRole.UserRole, card.id)
             self._table.setItem(row_idx, self._COL_NAME, name_item)
@@ -1046,16 +1036,18 @@ class CardHistoryView(QWidget):
             fields = self._template_controller.load_layout(card.template_id)
 
             field_data: dict[str, str] = {}
-            if card.name is not None:
-                field_data["name"] = card.name
-            if card.program is not None:
-                field_data["program"] = card.program
-            if card.roll_no is not None:
-                field_data["roll_no"] = card.roll_no
-            if card.cnic is not None:
-                field_data["cnic"] = card.cnic
-            if card.expiry_date is not None:
-                field_data["expiry_date"] = card.expiry_date
+            if card.employee_name is not None:
+                field_data["employee_name"] = card.employee_name
+            if card.designation is not None:
+                field_data["designation"] = card.designation
+            if card.employee_category is not None:
+                field_data["employee_category"] = card.employee_category
+            if card.blood_group is not None:
+                field_data["blood_group"] = card.blood_group
+            if card.location is not None:
+                field_data["location"] = card.location
+            if card.dependence is not None:
+                field_data["dependence"] = card.dependence
 
             front_path: str = self._render_service.render_front(
                 template=template,
@@ -1107,10 +1099,8 @@ class CardHistoryView(QWidget):
             file_filter = "PDF (*.pdf);;All Files (*)"
 
         suggested: str = ""
-        if card.name:
-            suggested = f"{card.name}"
-            if card.roll_no:
-                suggested += f"_{card.roll_no}"
+        if card.employee_name:
+            suggested = f"{card.employee_name}"
         suggested = suggested or f"card_{card.id}"
 
         dst_path: str
@@ -1195,16 +1185,18 @@ class CardHistoryView(QWidget):
             fields = self._template_controller.load_layout(card.template_id)
 
             field_data: dict[str, str] = {}
-            if card.name is not None:
-                field_data["name"] = card.name
-            if card.program is not None:
-                field_data["program"] = card.program
-            if card.roll_no is not None:
-                field_data["roll_no"] = card.roll_no
-            if card.cnic is not None:
-                field_data["cnic"] = card.cnic
-            if card.expiry_date is not None:
-                field_data["expiry_date"] = card.expiry_date
+            if card.employee_name is not None:
+                field_data["employee_name"] = card.employee_name
+            if card.designation is not None:
+                field_data["designation"] = card.designation
+            if card.employee_category is not None:
+                field_data["employee_category"] = card.employee_category
+            if card.blood_group is not None:
+                field_data["blood_group"] = card.blood_group
+            if card.location is not None:
+                field_data["location"] = card.location
+            if card.dependence is not None:
+                field_data["dependence"] = card.dependence
 
             front_path: str = self._render_service.render_front(
                 template=template,
@@ -1222,11 +1214,12 @@ class CardHistoryView(QWidget):
             duplicate: GeneratedCard = GeneratedCard(
                 template_id=card.template_id,
                 photo_path=card.photo_path,
-                name=card.name,
-                program=card.program,
-                roll_no=card.roll_no,
-                cnic=card.cnic,
-                expiry_date=card.expiry_date,
+                employee_name=card.employee_name,
+                designation=card.designation,
+                employee_category=card.employee_category,
+                blood_group=card.blood_group,
+                location=card.location,
+                dependence=card.dependence,
                 front_output=front_path,
                 back_output=back_path,
             )

@@ -100,7 +100,7 @@ class PreviewManager(QObject):
         we only need to trigger the update.
 
         Args:
-            name: The field name (e.g. ``'name'``, ``'roll_no'``).
+            name: The field name (e.g. ``'employee_name'``, ``'designation'``).
             value: The new text value.
         """
         self._schedule_update()

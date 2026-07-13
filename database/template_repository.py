@@ -245,6 +245,22 @@ class TemplateRepository:
             (template_id,),
         )
 
+    def count_templates_by_image(self, image_path: str) -> int:
+        """Count how many templates reference a specific image path.
+
+        Args:
+            image_path: The front_image or back_image path to check.
+
+        Returns:
+            Number of templates that reference this path.
+        """
+        row = self._db.fetch_one(
+            "SELECT COUNT(*) AS cnt FROM templates "
+            "WHERE front_image = ? OR back_image = ?",
+            (image_path, image_path),
+        )
+        return row["cnt"] if row else 0
+
     def template_name_exists(
         self, name: str, exclude_id: int | None = None
     ) -> bool:

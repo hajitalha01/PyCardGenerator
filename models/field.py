@@ -21,6 +21,12 @@ class TemplateField:
         display_name: Human-readable label shown in the UI.
         field_type: Data type from the Dynamic Field System
             (``text``, ``photo``, ``qr_code``, ...).
+        mapped_field: Semantic field name linking to Card Generator
+            form data (e.g. ``"employee_name"``).  Empty for shapes
+            or static text.
+        is_static: ``True`` for static labels that never change;
+            ``False`` for dynamic fields linked to form data.
+        static_text: The literal text content for static labels.
         x: Horizontal position on the card in millimetres.
         y: Vertical position on the card in millimetres.
         width: Field width in millimetres.
@@ -50,6 +56,9 @@ class TemplateField:
     field_name: str = ""
     display_name: str = ""
     field_type: str = "text"
+    mapped_field: str = ""
+    is_static: bool = False
+    static_text: str = ""
     x: float = 0.0
     y: float = 0.0
     width: float = 100.0

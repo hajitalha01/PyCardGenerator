@@ -63,7 +63,7 @@ class ExportValidator:
             errors.append(err_msg)
 
         # --- Photo required when template has a PHOTO field ---
-        fields: list[TemplateField] = template_controller.load_layout(tid)
+        fields: list[TemplateField] = template_controller.load_all_layout(tid)
         has_photo_field: bool = any(
             f.field_type == "photo" and f.visible
             for f in fields

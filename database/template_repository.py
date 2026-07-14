@@ -19,6 +19,14 @@ logger = setup_logger(__name__)
 _TEMPLATE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("canvas_width", "REAL NOT NULL DEFAULT 85.6"),
     ("canvas_height", "REAL NOT NULL DEFAULT 54.0"),
+    ("front_bg_pos_x", "REAL NOT NULL DEFAULT 0.0"),
+    ("front_bg_pos_y", "REAL NOT NULL DEFAULT 0.0"),
+    ("front_bg_width", "REAL NOT NULL DEFAULT 85.6"),
+    ("front_bg_height", "REAL NOT NULL DEFAULT 54.0"),
+    ("back_bg_pos_x", "REAL NOT NULL DEFAULT 0.0"),
+    ("back_bg_pos_y", "REAL NOT NULL DEFAULT 0.0"),
+    ("back_bg_width", "REAL NOT NULL DEFAULT 85.6"),
+    ("back_bg_height", "REAL NOT NULL DEFAULT 54.0"),
     ("grid_size", "INTEGER NOT NULL DEFAULT 10"),
     ("snap_to_grid", "INTEGER NOT NULL DEFAULT 1"),
     ("zoom_level", "REAL NOT NULL DEFAULT 100.0"),
@@ -35,6 +43,9 @@ _FIELD_COLUMNS: tuple[tuple[str, str], ...] = (
     ("required", "INTEGER NOT NULL DEFAULT 0"),
     ("default_value", "TEXT NOT NULL DEFAULT ''"),
     ("z_order", "INTEGER NOT NULL DEFAULT 0"),
+    ("mapped_field", "TEXT NOT NULL DEFAULT ''"),
+    ("is_static", "INTEGER NOT NULL DEFAULT 0"),
+    ("static_text", "TEXT NOT NULL DEFAULT ''"),
 )
 
 # ------------------------------------------------------------------
@@ -51,6 +62,14 @@ def _row_to_template(row: sqlite3.Row) -> CardTemplate:
         back_image=row["back_image"],
         canvas_width=row["canvas_width"],
         canvas_height=row["canvas_height"],
+        front_bg_pos_x=row["front_bg_pos_x"],
+        front_bg_pos_y=row["front_bg_pos_y"],
+        front_bg_width=row["front_bg_width"],
+        front_bg_height=row["front_bg_height"],
+        back_bg_pos_x=row["back_bg_pos_x"],
+        back_bg_pos_y=row["back_bg_pos_y"],
+        back_bg_width=row["back_bg_width"],
+        back_bg_height=row["back_bg_height"],
         grid_size=row["grid_size"],
         snap_to_grid=bool(row["snap_to_grid"]),
         zoom_level=row["zoom_level"],
@@ -68,6 +87,9 @@ def _row_to_field(row: sqlite3.Row) -> TemplateField:
         field_name=row["field_name"],
         display_name=row["display_name"],
         field_type=row["field_type"],
+        mapped_field=row["mapped_field"],
+        is_static=bool(row["is_static"]),
+        static_text=row["static_text"],
         x=row["x"],
         y=row["y"],
         width=row["width"],
@@ -158,15 +180,28 @@ class TemplateRepository:
         cursor = self._db.execute(
             """INSERT INTO templates
                (template_name, front_image, back_image,
-                canvas_width, canvas_height, grid_size,
-                snap_to_grid, zoom_level, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                canvas_width, canvas_height,
+                front_bg_pos_x, front_bg_pos_y,
+                front_bg_width, front_bg_height,
+                back_bg_pos_x, back_bg_pos_y,
+                back_bg_width, back_bg_height,
+                grid_size, snap_to_grid, zoom_level,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 template.template_name,
                 template.front_image,
                 template.back_image,
                 template.canvas_width,
                 template.canvas_height,
+                template.front_bg_pos_x,
+                template.front_bg_pos_y,
+                template.front_bg_width,
+                template.front_bg_height,
+                template.back_bg_pos_x,
+                template.back_bg_pos_y,
+                template.back_bg_width,
+                template.back_bg_height,
                 template.grid_size,
                 int(template.snap_to_grid),
                 template.zoom_level,
@@ -216,8 +251,13 @@ class TemplateRepository:
         self._db.execute(
             """UPDATE templates SET
                template_name = ?, front_image = ?, back_image = ?,
-               canvas_width = ?, canvas_height = ?, grid_size = ?,
-               snap_to_grid = ?, zoom_level = ?, updated_at = ?
+               canvas_width = ?, canvas_height = ?,
+               front_bg_pos_x = ?, front_bg_pos_y = ?,
+               front_bg_width = ?, front_bg_height = ?,
+               back_bg_pos_x = ?, back_bg_pos_y = ?,
+               back_bg_width = ?, back_bg_height = ?,
+               grid_size = ?, snap_to_grid = ?, zoom_level = ?,
+               updated_at = ?
                WHERE id = ?""",
             (
                 template.template_name,
@@ -225,6 +265,14 @@ class TemplateRepository:
                 template.back_image,
                 template.canvas_width,
                 template.canvas_height,
+                template.front_bg_pos_x,
+                template.front_bg_pos_y,
+                template.front_bg_width,
+                template.front_bg_height,
+                template.back_bg_pos_x,
+                template.back_bg_pos_y,
+                template.back_bg_width,
+                template.back_bg_height,
                 template.grid_size,
                 int(template.snap_to_grid),
                 template.zoom_level,
@@ -291,43 +339,54 @@ class TemplateRepository:
     # ------------------------------------------------------------------
 
     def save_fields(
-        self, template_id: int, fields: list[TemplateField]
+        self,
+        template_id: int,
+        fields: list[TemplateField],
+        page_side: str = "front",
     ) -> None:
-        """Replace all fields for a template with the provided list.
+        """Replace fields for a template *page_side* with the provided list.
 
-        Performs a full delete-and-insert inside a single transaction.
+        Performs a full delete-and-insert for the given side inside a
+        single transaction.
 
         Args:
             template_id: The owning template's id.
             fields: The complete list of ``TemplateField`` objects.
                 Every field will be assigned *template_id*.
+            page_side: ``"front"`` or ``"back"`` — only fields for this
+                side are replaced.
         """
         with self._db.transaction() as conn:
             conn.execute(
-                "DELETE FROM template_fields WHERE template_id = ?",
-                (template_id,),
+                "DELETE FROM template_fields WHERE template_id = ? AND page_side = ?",
+                (template_id, page_side),
             )
             now: str = timestamp_now()
             for field in fields:
                 field.template_id = template_id
+                field.page_side = page_side
                 field.created_at = now
                 conn.execute(
                     """INSERT INTO template_fields
                        (template_id, object_type, field_name, display_name,
-                        field_type, x, y, width, height, font_family,
+                        field_type, mapped_field, is_static, static_text,
+                        x, y, width, height, font_family,
                         font_size, font_color, background_color, bold,
                         italic, underline, alignment, rotation, opacity,
                         visible, locked, required, default_value, z_order,
                         page_side, created_at)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                               ?, ?, ?, ?, ?, ?)""",
+                               ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         template_id,
                         field.object_type,
                         field.field_name,
                         field.display_name,
                         field.field_type,
+                        field.mapped_field,
+                        int(field.is_static),
+                        field.static_text,
                         field.x,
                         field.y,
                         field.width,
@@ -347,24 +406,27 @@ class TemplateRepository:
                         int(field.required),
                         field.default_value,
                         field.z_order,
-                        field.page_side,
+                        page_side,
                         now,
                     ),
                 )
 
-    def get_fields(self, template_id: int) -> list[TemplateField]:
-        """Retrieve all fields for a template ordered by *z_order*.
+    def get_fields(
+        self, template_id: int, page_side: str = "front"
+    ) -> list[TemplateField]:
+        """Retrieve fields for a template side ordered by *z_order*.
 
         Args:
             template_id: The owning template's id.
+            page_side: ``"front"`` or ``"back"``.
 
         Returns:
             A list of ``TemplateField`` instances (possibly empty).
         """
         rows = self._db.fetch_all(
-            "SELECT * FROM template_fields WHERE template_id = ? "
+            "SELECT * FROM template_fields WHERE template_id = ? AND page_side = ? "
             "ORDER BY z_order ASC",
-            (template_id,),
+            (template_id, page_side),
         )
         return [_row_to_field(r) for r in rows]
 

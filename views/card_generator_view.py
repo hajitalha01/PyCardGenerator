@@ -66,6 +66,9 @@ class CardGeneratorView(QWidget):
 
         self._photo_path: str = ""
 
+        # Template data access
+        self._template_ctrl: TemplateController = TemplateController()
+
         # Central data management (created before UI to avoid late init)
         self._binding_manager: BindingManager = BindingManager(self)
 
@@ -74,6 +77,9 @@ class CardGeneratorView(QWidget):
         self._field_inputs: list[QLineEdit] = []
 
         self._setup_ui()
+
+        # Populate template dropdown from database
+        self._populate_template_combo()
 
         # Bind form widgets to the data model
         self._form_binder: FormBinder = FormBinder(self._binding_manager)
@@ -463,6 +469,39 @@ class CardGeneratorView(QWidget):
         self._dl_pdf_btn.clicked.connect(
             lambda: self._on_download("combined")
         )
+
+    # ------------------------------------------------------------------
+    # Template dropdown population
+    # ------------------------------------------------------------------
+
+    def _populate_template_combo(self) -> None:
+        """Load all templates from the database into the template combo.
+
+        Preserves the current selection if it still exists.
+        """
+        current_id: int = self._template_combo.currentData() or 0
+        self._template_combo.blockSignals(True)
+        self._template_combo.clear()
+        self._template_combo.addItem("-- Select Template --", 0)
+
+        try:
+            templates = self._template_ctrl.get_all_templates()
+            for tpl in templates:
+                self._template_combo.addItem(tpl.template_name, tpl.id)
+        except Exception:
+            logger.exception("Failed to populate template combo")
+
+        # Restore previous selection
+        if current_id > 0:
+            idx: int = self._template_combo.findData(current_id)
+            if idx >= 0:
+                self._template_combo.setCurrentIndex(idx)
+        self._template_combo.blockSignals(False)
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        """Refresh the template dropdown every time the page becomes visible."""
+        super().showEvent(event)
+        self._populate_template_combo()
 
     def _on_download(self, mode: str) -> None:
         """Open a save dialog, export the card, and show the result.

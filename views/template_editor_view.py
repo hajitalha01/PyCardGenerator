@@ -46,6 +46,17 @@ from views.widgets.editor_canvas import EditorCanvas
 
 logger = setup_logger(__name__)
 
+# Mapping from display name → (mapped_field, field_type) for dynamic fields.
+_DYNAMIC_FIELD_DEFS: list[tuple[str, str, str]] = [
+    ("Employee Name", "employee_name", "text"),
+    ("Designation", "designation", "text"),
+    ("Employee Category", "employee_category", "text"),
+    ("Blood Group", "blood_group", "text"),
+    ("Location", "location", "text"),
+    ("Dependence", "dependence", "text"),
+    ("Employee Photo", "employee_photo", "photo"),
+]
+
 
 class TemplateEditorView(QWidget):
     """Full card-template editing workspace.
@@ -74,6 +85,13 @@ class TemplateEditorView(QWidget):
         self._current_template_id: int | None = None
         self._front_image: str = ""
         self._back_image: str = ""
+        self._current_page_side: str = "front"
+        self._front_bg_info: dict[str, float | None] = {
+            "pos_x": None, "pos_y": None, "width": None, "height": None,
+        }
+        self._back_bg_info: dict[str, float | None] = {
+            "pos_x": None, "pos_y": None, "width": None, "height": None,
+        }
 
         self._setup_ui()
         self._connect_signals()
@@ -360,62 +378,45 @@ class TemplateEditorView(QWidget):
         layout.setContentsMargins(12, 16, 12, 16)
         layout.setSpacing(4)
 
-        # --- Fields section ---
-        layout.addWidget(self._make_section_title("Fields"))
+        # --- Dynamic Fields section ---
+        layout.addWidget(self._make_section_title("Dynamic Fields"))
 
-        self._field_buttons: dict[str, QPushButton] = {}
-        field_buttons: list[str] = [
-            "Add Text Field",
-            "Add Photo Field",
-        ]
-        for text in field_buttons:
-            btn: QPushButton = QPushButton(text)
+        self._dynamic_buttons: dict[str, QPushButton] = {}
+        for display_name, mapped_field, field_type in _DYNAMIC_FIELD_DEFS:
+            btn: QPushButton = QPushButton(display_name)
             btn.setObjectName("fieldToolboxBtn")
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(
-                lambda checked=False, t=text: self._on_field_button(t)
+                lambda checked=False, d=display_name, m=mapped_field, ft=field_type:
+                    self._on_dynamic_field(d, m, ft)
             )
             layout.addWidget(btn)
-            self._field_buttons[text] = btn
+            self._dynamic_buttons[display_name] = btn
 
         layout.addSpacing(12)
 
-        # --- Shapes section ---
-        layout.addWidget(self._make_section_title("Shapes"))
+        # --- Static Elements section ---
+        layout.addWidget(self._make_section_title("Static Elements"))
 
-        self._shape_buttons: dict[str, QPushButton] = {}
-        shape_buttons: list[str] = [
-            "Horizontal Line",
-            "Vertical Line",
-            "Rectangle",
-            "Circle",
+        self._static_buttons: dict[str, QPushButton] = {}
+        static_buttons: list[tuple[str, str]] = [
+            ("Static Text", "static_text"),
+            ("Horizontal Line", "horizontal_line"),
+            ("Vertical Line", "vertical_line"),
+            ("Rectangle", "rectangle"),
+            ("Circle", "circle"),
+            ("Image", "image"),
+            ("Logo", "logo"),
         ]
-        for text in shape_buttons:
+        for text, action in static_buttons:
             btn = QPushButton(text)
             btn.setObjectName("fieldToolboxBtn")
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.clicked.connect(
-                lambda checked=False, t=text: self._on_field_button(t)
+                lambda checked=False, a=action: self._on_static_element(a)
             )
             layout.addWidget(btn)
-            self._shape_buttons[text] = btn
-
-        layout.addSpacing(12)
-
-        # --- Media section ---
-        layout.addWidget(self._make_section_title("Media"))
-
-        self._media_buttons: dict[str, QPushButton] = {}
-        media_buttons: list[str] = ["Image", "Logo"]
-        for text in media_buttons:
-            btn = QPushButton(text)
-            btn.setObjectName("fieldToolboxBtn")
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(
-                lambda checked=False, t=text: self._on_field_button(t)
-            )
-            layout.addWidget(btn)
-            self._media_buttons[text] = btn
+            self._static_buttons[text] = btn
 
         layout.addStretch()
         scroll.setWidget(container)
@@ -563,6 +564,13 @@ class TemplateEditorView(QWidget):
             self._on_card_side_changed
         )
 
+        # Card size changes
+        self._width_spin.valueChanged.connect(self._on_card_size_changed)
+        self._height_spin.valueChanged.connect(self._on_card_size_changed)
+
+        # Canvas card resize signal
+        self._canvas.card_resized.connect(self._on_canvas_card_resized)
+
         # Save / open toolbar buttons
         self.save_requested.connect(self._on_save)
 
@@ -597,25 +605,57 @@ class TemplateEditorView(QWidget):
             self._front_image = resolve_template_image(template.front_image) or ""
             self._back_image = resolve_template_image(template.back_image) or ""
             self._editor_name_input.setText(template.template_name)
+
+            # Store per-side background positions from the template
+            self._front_bg_info = {
+                "pos_x": template.front_bg_pos_x,
+                "pos_y": template.front_bg_pos_y,
+                "width": template.front_bg_width,
+                "height": template.front_bg_height,
+            }
+            self._back_bg_info = {
+                "pos_x": template.back_bg_pos_x,
+                "pos_y": template.back_bg_pos_y,
+                "width": template.back_bg_width,
+                "height": template.back_bg_height,
+            }
+
+            # Block signals to avoid double resize during initial setup
+            self._width_spin.blockSignals(True)
+            self._height_spin.blockSignals(True)
             self._width_spin.setValue(template.canvas_width)
             self._height_spin.setValue(template.canvas_height)
+            # Manually apply card size once
+            self._canvas.resize_card(template.canvas_width, template.canvas_height)
+            self._width_spin.blockSignals(False)
+            self._height_spin.blockSignals(False)
+
             self._grid_spin.setValue(template.grid_size)
             self._snap_check.setChecked(template.snap_to_grid)
             self._canvas.set_snap_enabled(template.snap_to_grid)
             self._canvas.set_snap_size(template.grid_size)
+
+            # Set current page side
+            self._current_page_side = "front"
             print("[TRACE] Properties panel updated. Calling setCurrentIndex(0)")
             self._editor_card_side.setCurrentIndex(0)
 
-            # Always clear old background first, then load new one.
+            # Always clear old background first, then load front side.
             # Note: setCurrentIndex(0) above may NOT trigger _on_card_side_changed
             # if the index is already 0, so we must explicitly load here.
             self._canvas._clear_background()
             if self._front_image:
-                self._canvas.set_background_image(self._front_image)
+                self._canvas.set_background_image(
+                    self._front_image,
+                    pos_x_mm=template.front_bg_pos_x,
+                    pos_y_mm=template.front_bg_pos_y,
+                    width_mm=template.front_bg_width,
+                    height_mm=template.front_bg_height,
+                )
 
-            # Load fields onto canvas
-            print("[TRACE] Calling load_layout...")
-            fields = self._template_ctrl.load_layout(template_id)
+            # Load front-side fields onto canvas
+            print("[TRACE] Calling load_layout(side=front)...")
+            fields = self._template_ctrl.load_layout(template_id, page_side="front")
             print(f"[TRACE] load_layout returned {len(fields)} fields")
             for i, f in enumerate(fields):
                 print(f"  field[{i}]: type={f.object_type} name={f.field_name} x={f.x} y={f.y} w={f.width} h={f.height}")
@@ -666,15 +706,44 @@ class TemplateEditorView(QWidget):
         template.grid_size = self._grid_spin.value()
         template.snap_to_grid = self._snap_check.isChecked()
 
-        fields = self._canvas.get_fields(self._current_template_id)
+        # Update per-side bg info from current canvas state
+        current_bg = self._canvas.get_background_info()
+        if self._current_page_side == "front":
+            if current_bg:
+                self._front_bg_info.update(current_bg)
+            template.front_bg_pos_x = self._front_bg_info.get("pos_x", 0.0)
+            template.front_bg_pos_y = self._front_bg_info.get("pos_y", 0.0)
+            template.front_bg_width = self._front_bg_info.get("width", template.canvas_width)
+            template.front_bg_height = self._front_bg_info.get("height", template.canvas_height)
+        else:
+            if current_bg:
+                self._back_bg_info.update(current_bg)
+            template.back_bg_pos_x = self._back_bg_info.get("pos_x", 0.0)
+            template.back_bg_pos_y = self._back_bg_info.get("pos_y", 0.0)
+            template.back_bg_width = self._back_bg_info.get("width", template.canvas_width)
+            template.back_bg_height = self._back_bg_info.get("height", template.canvas_height)
+
+        # Persist the opposite side's bg from stored info too
+        if self._current_page_side == "front":
+            template.back_bg_pos_x = self._back_bg_info.get("pos_x", 0.0)
+            template.back_bg_pos_y = self._back_bg_info.get("pos_y", 0.0)
+            template.back_bg_width = self._back_bg_info.get("width", template.canvas_width)
+            template.back_bg_height = self._back_bg_info.get("height", template.canvas_height)
+        else:
+            template.front_bg_pos_x = self._front_bg_info.get("pos_x", 0.0)
+            template.front_bg_pos_y = self._front_bg_info.get("pos_y", 0.0)
+            template.front_bg_width = self._front_bg_info.get("width", template.canvas_width)
+            template.front_bg_height = self._front_bg_info.get("height", template.canvas_height)
+
+        fields = self._canvas.get_fields(self._current_template_id, self._current_page_side)
 
         try:
-            self._template_ctrl.save_full_template(template, fields)
+            self._template_ctrl.save_full_template(template, fields, self._current_page_side)
             QMessageBox.information(
                 self, "Saved",
                 f"Template '{name}' saved successfully."
             )
-            logger.info("Editor saved template id=%d", self._current_template_id)
+            logger.info("Editor saved template id=%d side=%s", self._current_template_id, self._current_page_side)
         except ValueError as exc:
             QMessageBox.warning(self, "Error", str(exc))
 
@@ -694,6 +763,10 @@ class TemplateEditorView(QWidget):
             self.open_requested.emit()
         elif action == "save":
             self.save_requested.emit()
+        elif action == "undo":
+            self._canvas.undo()
+        elif action == "redo":
+            self._canvas.redo()
         elif action == "zoom_in":
             self._canvas.zoom_in()
         elif action == "zoom_out":
@@ -722,53 +795,112 @@ class TemplateEditorView(QWidget):
         """
         self._status_pos.setText(f"X: {x:.0f}  Y: {y:.0f}")
 
+    def _on_card_size_changed(self) -> None:
+        """React to Card Width / Height spinbox changes."""
+        width_mm: float = self._width_spin.value()
+        height_mm: float = self._height_spin.value()
+        self._canvas.resize_card(width_mm, height_mm)
+
+    def _on_canvas_card_resized(self) -> None:
+        """Update the status bar when the canvas resizes."""
+        card_w = self._canvas._card_w
+        card_h = self._canvas._card_h
+        self._status_size.setText(f"{card_w:.0f} × {card_h:.0f} px")
+
     # ------------------------------------------------------------------
-    # Toolbox button handler
+    # Toolbox button handlers
     # ------------------------------------------------------------------
 
-    def _on_add_image(self) -> None:
-        """Open a file dialog to select an image and add it to the canvas."""
-        from PySide6.QtWidgets import QFileDialog
-
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select Image", "",
-            "Images (*.png *.jpg *.jpeg *.bmp *.gif *.svg);;All Files (*.*)"
-        )
-        if path:
-            self._canvas.add_image_item(path)
-
-    def _on_field_button(self, button_text: str) -> None:
-        """Handle field / shape toolbox button clicks.
+    def _on_dynamic_field(
+        self, display_name: str, mapped_field: str, field_type: str
+    ) -> None:
+        """Add a dynamic field pre-linked to a Card Generator form field.
 
         Args:
-            button_text: The label of the button clicked.
+            display_name: Human-readable name (e.g. ``"Employee Name"``).
+            mapped_field: Semantic field name (e.g. ``"employee_name"``).
+            field_type: ``"text"`` or ``"photo"``.
         """
-        if button_text == "Add Text Field":
-            self._canvas.add_text_field()
-        elif button_text == "Add Photo Field":
-            self._canvas.add_photo_field()
-        elif button_text == "Rectangle":
+        if field_type == "photo":
+            self._canvas.add_dynamic_photo_field(mapped_field)
+        else:
+            self._canvas.add_dynamic_text_field(display_name, mapped_field)
+
+    def _on_static_element(self, action: str) -> None:
+        """Add a static element to the canvas.
+
+        Args:
+            action: Element type identifier.
+        """
+        if action == "static_text":
+            self._canvas.add_static_text()
+        elif action == "rectangle":
             self._canvas.add_rectangle()
-        elif button_text == "Circle":
+        elif action == "circle":
             self._canvas.add_circle()
-        elif button_text == "Horizontal Line":
+        elif action == "horizontal_line":
             self._canvas.add_horizontal_line()
-        elif button_text == "Vertical Line":
+        elif action == "vertical_line":
             self._canvas.add_vertical_line()
-        elif button_text in ("Image", "Logo"):
-            self._on_add_image()
+        elif action in ("image", "logo"):
+            from PySide6.QtWidgets import QFileDialog
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Select Image", "",
+                "Images (*.png *.jpg *.jpeg *.bmp *.gif *.svg);;All Files (*.*)"
+            )
+            if path:
+                self._canvas.add_image_item(path)
 
     # ------------------------------------------------------------------
     # Card side switching
     # ------------------------------------------------------------------
 
     def _on_card_side_changed(self, index: int) -> None:
-        """Switch the canvas background between front and back."""
+        """Switch between front and back card sides."""
+        if self._current_template_id is None:
+            return
+
+        old_side: str = self._current_page_side
+        new_side: str = "front" if index == 0 else "back"
+
+        if old_side == new_side:
+            return
+
+        # Save current side's fields and bg info before switching
+        current_bg = self._canvas.get_background_info()
+        if current_bg:
+            if old_side == "front":
+                self._front_bg_info.update(current_bg)
+            else:
+                self._back_bg_info.update(current_bg)
+
+        old_fields = self._canvas.get_fields(self._current_template_id, old_side)
+        try:
+            self._template_ctrl.save_layout(self._current_template_id, old_fields, old_side)
+        except ValueError:
+            pass
+
+        # Clear canvas and background
         self._canvas._clear_background()
-        if index == 0 and self._front_image:
-            self._canvas.set_background_image(self._front_image)
-        elif index == 1 and self._back_image:
-            self._canvas.set_background_image(self._back_image)
+        self._canvas.load_fields([])
+
+        # Load new side background
+        bg_info = self._front_bg_info if new_side == "front" else self._back_bg_info
+        image = self._front_image if new_side == "front" else self._back_image
+        if image:
+            self._canvas.set_background_image(
+                image,
+                pos_x_mm=bg_info.get("pos_x"),
+                pos_y_mm=bg_info.get("pos_y"),
+                width_mm=bg_info.get("width"),
+                height_mm=bg_info.get("height"),
+            )
+
+        # Load new side fields
+        fields = self._template_ctrl.load_layout(self._current_template_id, new_side)
+        self._canvas.load_fields(fields)
+
+        self._current_page_side = new_side
 
     # ------------------------------------------------------------------
     # Selection display
@@ -781,6 +913,7 @@ class TemplateEditorView(QWidget):
             item: The selected canvas item.
         """
         from views.widgets.canvas_items import (
+            BackgroundItem,
             BaseCanvasItem,
             CircleItem,
             HorizontalLineItem,
@@ -805,6 +938,8 @@ class TemplateEditorView(QWidget):
             name = "Vertical Line"
         elif isinstance(item, ImageItem):
             name = "Image"
+        elif isinstance(item, BackgroundItem):
+            name = "Background Image"
         elif isinstance(item, BaseCanvasItem):
             name = "Canvas Item"
         else:

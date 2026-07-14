@@ -323,12 +323,13 @@ class TemplateController:
         )
         self._repo.create_template(dup)
 
-        # Duplicate all fields
-        fields: list[TemplateField] = self._repo.get_fields(template_id)
-        for field in fields:
-            field.id = None  # force new PK
-            field.created_at = None
-        self._repo.save_fields(dup.id, fields)
+        # Duplicate front and back fields separately
+        for side in ("front", "back"):
+            fields: list[TemplateField] = self._repo.get_fields(template_id, side)
+            for field in fields:
+                field.id = None  # force new PK
+                field.created_at = None
+            self._repo.save_fields(dup.id, fields, side)
 
         self._current_template = dup
         logger.info(
@@ -344,15 +345,19 @@ class TemplateController:
     # ------------------------------------------------------------------
 
     def save_layout(
-        self, template_id: int, fields: list[TemplateField]
+        self,
+        template_id: int,
+        fields: list[TemplateField],
+        page_side: str = "front",
     ) -> None:
-        """Save all fields for a template, replacing any existing fields.
+        """Save all fields for a template side, replacing any existing fields.
 
         Validates every field before persisting.
 
         Args:
             template_id: The owning template's id.
             fields: The complete list of fields to save.
+            page_side: ``"front"`` or ``"back"``.
 
         Raises:
             ValueError: If any field fails validation.
@@ -364,36 +369,58 @@ class TemplateController:
             )
             raise ValueError(f"Field validation failed: {msg}")
 
-        self._repo.save_fields(template_id, fields)
+        self._repo.save_fields(template_id, fields, page_side)
         logger.info(
-            "Saved %d fields for template id=%d",
+            "Saved %d fields for template id=%d side=%s",
             len(fields),
             template_id,
+            page_side,
         )
 
-    def load_layout(self, template_id: int) -> list[TemplateField]:
-        """Load all fields for a template.
+    def load_layout(
+        self, template_id: int, page_side: str = "front"
+    ) -> list[TemplateField]:
+        """Load fields for a template side.
+
+        Args:
+            template_id: The template whose fields should be loaded.
+            page_side: ``"front"`` or ``"back"``.
+
+        Returns:
+            A list of ``TemplateField`` instances ordered by z_order.
+        """
+        fields: list[TemplateField] = self._repo.get_fields(template_id, page_side)
+        logger.info(
+            "Loaded %d fields for template id=%d side=%s",
+            len(fields),
+            template_id,
+            page_side,
+        )
+        return fields
+
+    def load_all_layout(self, template_id: int) -> list[TemplateField]:
+        """Load all fields for a template (both front and back sides).
 
         Args:
             template_id: The template whose fields should be loaded.
 
         Returns:
-            A list of ``TemplateField`` instances ordered by z_order.
+            A combined list of front and back ``TemplateField``
+            instances.
         """
-        fields: list[TemplateField] = self._repo.get_fields(template_id)
-        logger.info(
-            "Loaded %d fields for template id=%d",
-            len(fields),
-            template_id,
-        )
-        return fields
+        front: list[TemplateField] = self._repo.get_fields(template_id, "front")
+        back: list[TemplateField] = self._repo.get_fields(template_id, "back")
+        return front + back
 
     # ------------------------------------------------------------------
     # Full save (template + layout)
     # ------------------------------------------------------------------
 
     def save_full_template(
-        self, template: CardTemplate, fields: list[TemplateField]
+        self,
+        template: CardTemplate,
+        fields: list[TemplateField],
+        page_side: str = "front",
     ) -> CardTemplate:
         """Persist the template metadata and all its fields in one call.
 
@@ -403,6 +430,7 @@ class TemplateController:
         Args:
             template: The template with any updated metadata.
             fields: The complete list of fields.
+            page_side: ``"front"`` or ``"back"``.
 
         Returns:
             The same template instance after persistence.
@@ -412,7 +440,7 @@ class TemplateController:
         """
         self.update_template(template)
         if template.id is not None:
-            self.save_layout(template.id, fields)
+            self.save_layout(template.id, fields, page_side)
         return template
 
     # ------------------------------------------------------------------

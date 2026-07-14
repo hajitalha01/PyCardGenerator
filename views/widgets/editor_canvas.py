@@ -4,7 +4,10 @@ Provides a QGraphicsView-based canvas with a checkerboard
 background, centred card area, keyboard/mouse interaction,
 multi-selection, zoom, and item-management methods.
 """
+from __future__ import annotations
+
 import traceback
+from collections import OrderedDict
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
@@ -29,9 +32,45 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from config.constants import CARD_HEIGHT_PX, CARD_WIDTH_PX
+
+class EditorScene(QGraphicsScene):
+    """Scene with optional visual grid overlay."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._grid_size: float = 10.0
+        self._grid_visible: bool = True
+
+    def set_grid(self, size: float, visible: bool) -> None:
+        self._grid_size = max(4.0, size)
+        self._grid_visible = visible
+        self.update()
+
+    def drawBackground(self, painter: QPainter, rect: QRectF) -> None:  # noqa: N802
+        super().drawBackground(painter, rect)
+        if not self._grid_visible or self._grid_size < 4:
+            return
+        painter.setPen(QPen(QColor(0, 0, 0, 25), 0.5))
+        left: float = float(int(rect.left()) - (int(rect.left()) % int(self._grid_size)))
+        top: float = float(int(rect.top()) - (int(rect.top()) % int(self._grid_size)))
+        x: float = left
+        while x <= rect.right():
+            painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
+            x += self._grid_size
+        y: float = top
+        while y <= rect.bottom():
+            painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
+            y += self._grid_size
+
+from config.constants import (
+    CARD_HEIGHT_MM,
+    CARD_HEIGHT_PX,
+    CARD_WIDTH_MM,
+    CARD_WIDTH_PX,
+)
 from models.field import TemplateField
 from views.widgets.canvas_items import (
+    BackgroundItem,
     BaseCanvasItem,
     CircleItem,
     HorizontalLineItem,
@@ -67,6 +106,7 @@ class EditorCanvas(QGraphicsView):
     mouse_position_changed = Signal(float, float)
     object_selected = Signal(object)
     selection_changed = Signal()
+    card_resized = Signal()
 
     # ------------------------------------------------------------------
     # Initialisation
@@ -77,7 +117,7 @@ class EditorCanvas(QGraphicsView):
         super().__init__(parent)
         self.setObjectName("editorCanvas")
 
-        self._scene: QGraphicsScene = QGraphicsScene(self)
+        self._scene: EditorScene = EditorScene(self)
         self.setScene(self._scene)
 
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -107,7 +147,18 @@ class EditorCanvas(QGraphicsView):
         self._clipboard: list[BaseCanvasItem] = []
 
         # Background image item
-        self._background_item: QGraphicsItem | None = None
+        self._background_item: BackgroundItem | None = None
+
+        # Card dimensions in mm (for conversion)
+        self._card_w_mm: float = CARD_WIDTH_MM
+        self._card_h_mm: float = CARD_HEIGHT_MM
+
+        # Undo / redo stacks
+        self._undo_stack: list[dict] = []
+        self._redo_stack: list[dict] = []
+
+        # Pre-drag state snapshot for undo creation
+        self._pre_drag_state: dict[int, tuple[QPointF, QRectF]] = {}
 
         self._setup_scene()
 
@@ -198,6 +249,7 @@ class EditorCanvas(QGraphicsView):
             enabled: ``True`` to snap to grid.
         """
         self._snap_enabled = enabled
+        self._scene.set_grid(self._snap_size, enabled)
         for item in self._scene.items():
             if isinstance(item, BaseCanvasItem):
                 item.set_snap(enabled, self._snap_size)
@@ -209,6 +261,7 @@ class EditorCanvas(QGraphicsView):
             size: Grid cell size (minimum 2).
         """
         self._snap_size = max(2.0, size)
+        self._scene.set_grid(self._snap_size, self._snap_enabled)
         if self._snap_enabled:
             for item in self._scene.items():
                 if isinstance(item, BaseCanvasItem):
@@ -219,7 +272,7 @@ class EditorCanvas(QGraphicsView):
     # ------------------------------------------------------------------
 
     def add_text_field(self, x: float | None = None, y: float | None = None) -> TextFieldItem:
-        """Add a new text field item to the scene.
+        """Add a generic text field item to the scene (no mapping).
 
         Args:
             x: Scene X (defaults to card centre).
@@ -235,8 +288,56 @@ class EditorCanvas(QGraphicsView):
         self._configure_item(item)
         return item
 
+    def add_dynamic_text_field(
+        self,
+        display_name: str,
+        mapped_field: str,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> TextFieldItem:
+        """Add a dynamic text field pre-linked to a Card Generator field.
+
+        Args:
+            display_name: Human-readable label (e.g. ``"Employee Name"``).
+            mapped_field: Semantic field name (e.g. ``"employee_name"``).
+            x: Scene X (defaults to card centre).
+            y: Scene Y (defaults to card centre).
+
+        Returns:
+            The newly created TextFieldItem.
+        """
+        item: TextFieldItem = TextFieldItem(
+            x or (self._card_w / 2 + 60),
+            y or (self._card_h / 2 + 60),
+            is_static=False,
+            mapped_field=mapped_field,
+            static_text="",
+        )
+        self._configure_item(item)
+        return item
+
+    def add_static_text(self, x: float | None = None, y: float | None = None) -> TextFieldItem:
+        """Add a static text label that never changes.
+
+        Args:
+            x: Scene X (defaults to card centre).
+            y: Scene Y (defaults to card centre).
+
+        Returns:
+            The newly created TextFieldItem.
+        """
+        item: TextFieldItem = TextFieldItem(
+            x or (self._card_w / 2 + 60),
+            y or (self._card_h / 2 + 60),
+            is_static=True,
+            mapped_field="",
+            static_text="Label",
+        )
+        self._configure_item(item)
+        return item
+
     def add_photo_field(self, x: float | None = None, y: float | None = None) -> PhotoFieldItem:
-        """Add a new photo field item to the scene.
+        """Add a generic photo field item to the scene.
 
         Args:
             x: Scene X (defaults to card centre).
@@ -248,6 +349,30 @@ class EditorCanvas(QGraphicsView):
         item: PhotoFieldItem = PhotoFieldItem(
             x or (self._card_w / 2 + 60),
             y or (self._card_h / 2 + 60),
+        )
+        self._configure_item(item)
+        return item
+
+    def add_dynamic_photo_field(
+        self,
+        mapped_field: str,
+        x: float | None = None,
+        y: float | None = None,
+    ) -> PhotoFieldItem:
+        """Add a dynamic photo field pre-linked to a Card Generator photo.
+
+        Args:
+            mapped_field: Semantic field name (e.g. ``"employee_photo"``).
+            x: Scene X (defaults to card centre).
+            y: Scene Y (defaults to card centre).
+
+        Returns:
+            The newly created PhotoFieldItem.
+        """
+        item: PhotoFieldItem = PhotoFieldItem(
+            x or (self._card_w / 2 + 60),
+            y or (self._card_h / 2 + 60),
+            mapped_field=mapped_field,
         )
         self._configure_item(item)
         return item
@@ -310,7 +435,14 @@ class EditorCanvas(QGraphicsView):
         """
         item.set_snap(self._snap_enabled, self._snap_size)
         item.item_selected.connect(self._on_item_selected)
+        item.item_moved.connect(self._on_item_moved)
+        item.item_resized.connect(self._on_item_resized)
         item.item_deleted.connect(self._on_item_deleted)
+        self._push_undo(
+            f"Add {type(item).__name__}",
+            lambda i=item: self._scene.removeItem(i),
+            lambda i=item: self._scene.addItem(i),
+        )
         self._scene.addItem(item)
         item.setSelected(True)
         self._hide_placeholder()
@@ -359,7 +491,87 @@ class EditorCanvas(QGraphicsView):
         Args:
             item: The item that was removed.
         """
+        was_background: bool = item is self._background_item
+        if was_background:
+            self._background_item = None
+            self._set_card_brush(QColor("#ffffff"))
+        self._push_undo(
+            f"Delete {type(item).__name__}",
+            lambda i=item, wb=was_background: (
+                self._scene.addItem(i),
+                setattr(self, '_background_item', i) if wb else None,
+                self._hide_placeholder(),
+            ),
+            lambda i=item, wb=was_background: (
+                self._scene.removeItem(i),
+                setattr(self, '_background_item', None) if wb else None,
+                self._hide_placeholder(),
+            ),
+        )
         self._hide_placeholder()
+
+    # ------------------------------------------------------------------
+    # Undo / Redo
+    # ------------------------------------------------------------------
+
+    def _push_undo(self, description: str, undo_fn, redo_fn) -> None:
+        self._undo_stack.append({
+            "description": description,
+            "undo": undo_fn,
+            "redo": redo_fn,
+        })
+        self._redo_stack.clear()
+        if len(self._undo_stack) > 50:
+            self._undo_stack.pop(0)
+
+    def undo(self) -> None:
+        if not self._undo_stack:
+            return
+        cmd = self._undo_stack.pop()
+        cmd["undo"]()
+        self._redo_stack.append(cmd)
+
+    def redo(self) -> None:
+        if not self._redo_stack:
+            return
+        cmd = self._redo_stack.pop()
+        cmd["redo"]()
+        self._undo_stack.append(cmd)
+
+    def _on_item_moved(self, item: BaseCanvasItem, new_x: float, new_y: float) -> None:
+        item_id = id(item)
+        if item_id in self._pre_drag_state:
+            old_pos, _ = self._pre_drag_state.pop(item_id)
+            old_x, old_y = old_pos.x(), old_pos.y()
+            if abs(old_x - new_x) > 0.5 or abs(old_y - new_y) > 0.5:
+                self._push_undo(
+                    f"Move {type(item).__name__}",
+                    lambda i=item, ox=old_x, oy=old_y: i.setPos(ox, oy),
+                    lambda i=item, nx=new_x, ny=new_y: i.setPos(nx, ny),
+                )
+
+    def _on_item_resized(self, item: BaseCanvasItem, x: float, y: float, w: float, h: float) -> None:
+        item_id = id(item)
+        if item_id in self._pre_drag_state:
+            old_pos, old_rect = self._pre_drag_state.pop(item_id)
+            old_x, old_y = old_pos.x(), old_pos.y()
+            old_w, old_h = old_rect.width(), old_rect.height()
+            if abs(old_x - x) > 0.5 or abs(old_y - y) > 0.5 or abs(old_w - w) > 0.5 or abs(old_h - h) > 0.5:
+                self._push_undo(
+                    f"Resize {type(item).__name__}",
+                    lambda i=item, ox=old_x, oy=old_y, ow=old_w, oh=old_h: (
+                        i.prepareGeometryChange(),
+                        setattr(i, '_rect', QRectF(0, 0, ow, oh)),
+                        i.setPos(ox, oy),
+                        i.update(),
+                    ),
+                    lambda i=item, nx=x, ny=y, nw=w, nh=h: (
+                        i.prepareGeometryChange(),
+                        setattr(i, '_rect', QRectF(0, 0, nw, nh)),
+                        i.setPos(nx, ny),
+                        i.update(),
+                    ),
+                )
 
     # ------------------------------------------------------------------
     # Background image
@@ -368,8 +580,23 @@ class EditorCanvas(QGraphicsView):
     def _set_card_brush(self, color: QColor) -> None:
         self._card_item.setBrush(QBrush(color))
 
-    def set_background_image(self, path: str) -> None:
-        """Load and display a background image on the card area."""
+    def set_background_image(
+        self,
+        path: str,
+        pos_x_mm: float | None = None,
+        pos_y_mm: float | None = None,
+        width_mm: float | None = None,
+        height_mm: float | None = None,
+    ) -> None:
+        """Load and display a background image on the card area.
+
+        Args:
+            path: File path to the image.
+            pos_x_mm: Saved X position in mm (defaults to card left edge).
+            pos_y_mm: Saved Y position in mm (defaults to card top edge).
+            width_mm: Saved width in mm (defaults to card width).
+            height_mm: Saved height in mm (defaults to card height).
+        """
         self._clear_background()
         print(f"[TRACE set_bg] path='{path}'")
         from PySide6.QtGui import QPixmap  # noqa: PLC0415
@@ -381,21 +608,52 @@ class EditorCanvas(QGraphicsView):
             print(f"[TRACE set_bg] PIXMAP IS NULL — image not found or invalid format")
             return
 
+        px_per_mm_x, px_per_mm_y = self._px_per_mm()
+        card_pos = self._card_item.pos()
         card_rect = self._card_item.rect()
-        scaled: QPixmap = pixmap.scaled(
-            int(card_rect.width()),
-            int(card_rect.height()),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        print(f"[TRACE set_bg] scaled size={scaled.width()}x{scaled.height()}")
-        item = self._scene.addPixmap(scaled)
-        item.setPos(self._card_item.pos())
+
+        if pos_x_mm is not None:
+            bg_x: float = card_pos.x() + pos_x_mm * px_per_mm_x
+        else:
+            bg_x = card_pos.x()
+
+        if pos_y_mm is not None:
+            bg_y: float = card_pos.y() + pos_y_mm * px_per_mm_y
+        else:
+            bg_y = card_pos.y()
+
+        if width_mm is not None:
+            bg_w: float = width_mm * px_per_mm_x
+        else:
+            bg_w = card_rect.width()
+
+        if height_mm is not None:
+            bg_h: float = height_mm * px_per_mm_y
+        else:
+            bg_h = card_rect.height()
+
+        item = BackgroundItem(bg_x, bg_y, bg_w, bg_h, path)
+        item.set_constraint_rect(card_rect.translated(card_pos))
+        self._configure_item(item)
         item.setZValue(-1)
         self._background_item = item
         self._set_card_brush(QColor(0, 0, 0, 0))
         print(f"[TRACE set_bg] background_item set, zValue=-1, calling _hide_placeholder")
         self._hide_placeholder()
+
+    def get_background_info(self) -> dict[str, float] | None:
+        """Return background position/size in mm, or None if no background."""
+        if self._background_item is None:
+            return None
+        px_per_mm_x, px_per_mm_y = self._px_per_mm()
+        card_pos = self._card_item.pos()
+        bg = self._background_item
+        return {
+            "pos_x": (bg.pos().x() - card_pos.x()) / px_per_mm_x,
+            "pos_y": (bg.pos().y() - card_pos.y()) / px_per_mm_y,
+            "width": bg._rect.width() / px_per_mm_x,
+            "height": bg._rect.height() / px_per_mm_y,
+        }
 
     def _clear_background(self) -> None:
         """Remove the current background image from the scene."""
@@ -405,38 +663,129 @@ class EditorCanvas(QGraphicsView):
         self._set_card_brush(QColor("#ffffff"))
 
     # ------------------------------------------------------------------
+    # Card size management
+    # ------------------------------------------------------------------
+
+    def _px_per_mm(self) -> tuple[float, float]:
+        """Return (px_per_mm_x, px_per_mm_y) for the current card."""
+        if self._card_w_mm > 0 and self._card_h_mm > 0:
+            return self._card_w / self._card_w_mm, self._card_h / self._card_h_mm
+        return CARD_WIDTH_PX / CARD_WIDTH_MM, CARD_HEIGHT_PX / CARD_HEIGHT_MM
+
+    def resize_card(self, width_mm: float, height_mm: float) -> None:
+        """Resize the card canvas and scale all items proportionally.
+
+        Args:
+            width_mm: New card width in millimetres.
+            height_mm: New card height in millimetres.
+        """
+        px_per_mm_x, px_per_mm_y = self._px_per_mm()
+        new_w: float = width_mm * px_per_mm_x
+        new_h: float = height_mm * px_per_mm_y
+
+        old_w: float = self._card_w
+        old_h: float = self._card_h
+
+        if abs(new_w - old_w) < 0.5 and abs(new_h - old_h) < 0.5:
+            return
+
+        scale_x: float = new_w / old_w
+        scale_y: float = new_h / old_h
+
+        card_pos = self._card_item.pos()
+
+        # Resize card rect
+        self._card_item.setRect(
+            card_pos.x(),
+            card_pos.y(),
+            new_w,
+            new_h,
+        )
+        self._card_w = new_w
+        self._card_h = new_h
+        self._card_w_mm = width_mm
+        self._card_h_mm = height_mm
+
+        # Scale background item
+        if self._background_item is not None:
+            bg = self._background_item
+            bg_rect = bg._rect
+            new_bg_w = bg_rect.width() * scale_x
+            new_bg_h = bg_rect.height() * scale_y
+            bg.prepareGeometryChange()
+            bg._rect = QRectF(0, 0, new_bg_w, new_bg_h)
+            bg.setPos(
+                card_pos.x() + (bg.pos().x() - card_pos.x()) * scale_x,
+                card_pos.y() + (bg.pos().y() - card_pos.y()) * scale_y,
+            )
+            bg.set_constraint_rect(QRectF(card_pos.x(), card_pos.y(), new_w, new_h))
+            bg.update()
+
+        # Scale all canvas items
+        for item in self._scene.items():
+            if not isinstance(item, BaseCanvasItem) or item is self._background_item:
+                continue
+            item_rect = item._rect
+            new_item_w = item_rect.width() * scale_x
+            new_item_h = item_rect.height() * scale_y
+            item.prepareGeometryChange()
+            item._rect = QRectF(0, 0, max(new_item_w, MIN_ITEM_SIZE), max(new_item_h, MIN_ITEM_SIZE))
+            item.setPos(
+                card_pos.x() + (item.pos().x() - card_pos.x()) * scale_x,
+                card_pos.y() + (item.pos().y() - card_pos.y()) * scale_y,
+            )
+            item.update()
+
+        # Update scene rect
+        margin: int = 60
+        self._scene.setSceneRect(
+            0, 0,
+            new_w + margin * 2,
+            new_h + margin * 2,
+        )
+
+        self.fit_to_screen()
+        self.card_resized.emit()
+
+    # ------------------------------------------------------------------
     # Load / save fields
     # ------------------------------------------------------------------
 
     def load_fields(self, fields: list[TemplateField]) -> None:
         """Clear existing items and recreate them from *fields*."""
         print(f"[TRACE load_fields] START: {len(fields)} fields")
-        # Remove existing canvas items
+        # Remove existing canvas items (keep background)
         removed: int = 0
         for item in list(self._scene.items()):
-            if isinstance(item, BaseCanvasItem):
+            if isinstance(item, BaseCanvasItem) and item is not self._background_item:
                 self._scene.removeItem(item)
                 removed += 1
         print(f"[TRACE load_fields] removed {removed} existing items")
 
         card_pos = self._card_item.pos()
         print(f"[TRACE load_fields] card_pos=({card_pos.x()}, {card_pos.y()})")
+        px_per_mm_x, px_per_mm_y = self._px_per_mm()
 
         created: int = 0
         for field in fields:
-            x: float = card_pos.x() + field.x * CARD_WIDTH_PX / 85.6
-            y: float = card_pos.y() + field.y * CARD_HEIGHT_PX / 54.0
-            w: float = field.width * CARD_WIDTH_PX / 85.6
-            h: float = field.height * CARD_HEIGHT_PX / 54.0
+            x: float = card_pos.x() + field.x * px_per_mm_x
+            y: float = card_pos.y() + field.y * px_per_mm_y
+            w: float = field.width * px_per_mm_x
+            h: float = field.height * px_per_mm_y
 
             obj_type: str = field.object_type
             print(f"[TRACE load_fields] creating field type='{obj_type}' pos=({x:.1f},{y:.1f}) size=({w:.1f},{h:.1f})")
 
             if obj_type == "text_field":
-                item: BaseCanvasItem = TextFieldItem(x, y)
+                item: BaseCanvasItem = TextFieldItem(
+                    x, y,
+                    is_static=field.is_static,
+                    mapped_field=field.mapped_field,
+                    static_text=field.static_text or field.field_name if field.is_static else "",
+                )
                 item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
             elif obj_type == "photo_field":
-                item = PhotoFieldItem(x, y)
+                item = PhotoFieldItem(x, y, mapped_field=field.mapped_field)
                 item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
             elif obj_type in ("rectangle", "line"):
                 item = RectangleItem(x, y)
@@ -461,6 +810,8 @@ class EditorCanvas(QGraphicsView):
             item.setZValue(float(field.z_order))
             item.set_snap(self._snap_enabled, self._snap_size)
             item.item_selected.connect(self._on_item_selected)
+            item.item_moved.connect(self._on_item_moved)
+            item.item_resized.connect(self._on_item_resized)
             item.item_deleted.connect(self._on_item_deleted)
             self._scene.addItem(item)
             created += 1
@@ -469,11 +820,14 @@ class EditorCanvas(QGraphicsView):
         self._hide_placeholder()
         print(f"[TRACE load_fields] DONE")
 
-    def get_fields(self, template_id: int) -> list[TemplateField]:
+    def get_fields(
+        self, template_id: int, page_side: str = "front"
+    ) -> list[TemplateField]:
         """Extract ``TemplateField`` objects from the current canvas items.
 
         Args:
             template_id: The owning template's id.
+            page_side: ``"front"`` or ``"back"``.
 
         Returns:
             A list of ``TemplateField`` objects.
@@ -483,15 +837,18 @@ class EditorCanvas(QGraphicsView):
         now: str = timestamp_now()
         fields: list[TemplateField] = []
         card_pos = self._card_item.pos()
+        px_per_mm_x, px_per_mm_y = self._px_per_mm()
 
         for i, scene_item in enumerate(self._scene.items()):
             if not isinstance(scene_item, BaseCanvasItem):
                 continue
+            if scene_item is self._background_item:
+                continue
 
-            x_mm: float = (scene_item.pos().x() - card_pos.x()) * 85.6 / CARD_WIDTH_PX
-            y_mm: float = (scene_item.pos().y() - card_pos.y()) * 54.0 / CARD_HEIGHT_PX
-            w_mm: float = scene_item.item_rect.width() * 85.6 / CARD_WIDTH_PX
-            h_mm: float = scene_item.item_rect.height() * 54.0 / CARD_HEIGHT_PX
+            x_mm: float = (scene_item.pos().x() - card_pos.x()) / px_per_mm_x
+            y_mm: float = (scene_item.pos().y() - card_pos.y()) / px_per_mm_y
+            w_mm: float = scene_item.item_rect.width() / px_per_mm_x
+            h_mm: float = scene_item.item_rect.height() / px_per_mm_y
 
             obj_type: str = "text_field"
 
@@ -510,7 +867,19 @@ class EditorCanvas(QGraphicsView):
             elif isinstance(scene_item, ImageItem):
                 obj_type = "image"
 
+            mapped_field: str = ""
+            is_static: bool = False
+            static_text: str = ""
             field_name: str = f"field_{i}"
+
+            if isinstance(scene_item, TextFieldItem):
+                mapped_field = scene_item._mapped_field
+                is_static = scene_item._is_static
+                static_text = scene_item._text if is_static else ""
+                field_name = mapped_field or field_name
+            if isinstance(scene_item, PhotoFieldItem):
+                mapped_field = scene_item._mapped_field
+                field_name = mapped_field or field_name
             if isinstance(scene_item, ImageItem):
                 field_name = scene_item.image_path or f"field_{i}"
 
@@ -520,12 +889,15 @@ class EditorCanvas(QGraphicsView):
                 field_name=field_name,
                 display_name=f"Field {i}",
                 field_type="text" if obj_type == "text_field" else "photo",
+                mapped_field=mapped_field,
+                is_static=is_static,
+                static_text=static_text,
                 x=round(x_mm, 2),
                 y=round(y_mm, 2),
                 width=round(max(w_mm, 5.0), 2),
                 height=round(max(h_mm, 5.0), 2),
                 z_order=i,
-                page_side="front",
+                page_side=page_side,
                 created_at=now,
             )
             fields.append(field)
@@ -660,7 +1032,7 @@ class EditorCanvas(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        """Handle Ctrl+click for multi-selection toggling."""
+        """Handle Ctrl+click for multi-selection and record pre-drag state."""
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             item = self.itemAt(event.position().toPoint())
             if item is not None and isinstance(item, QGraphicsItem):
@@ -668,6 +1040,10 @@ class EditorCanvas(QGraphicsView):
                 event.accept()
                 return
         super().mousePressEvent(event)
+        # Record pre-drag state for all selected canvas items
+        self._pre_drag_state.clear()
+        for si in self.selected_canvas_items():
+            self._pre_drag_state[id(si)] = (QPointF(si.pos()), QRectF(si._rect))
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         """Re-centre the view on the card after a resize."""

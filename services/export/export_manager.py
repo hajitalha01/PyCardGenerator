@@ -222,5 +222,5 @@ class ExportManager:
             raise ExportError(
                 f"Template id={tid} not found in the database."
             )
-        fields: list[TemplateField] = self._template_ctrl.load_layout(tid)
+        fields: list[TemplateField] = self._template_ctrl.load_all_layout(tid)
         return template, fields

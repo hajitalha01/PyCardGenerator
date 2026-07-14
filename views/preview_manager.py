@@ -131,7 +131,7 @@ class PreviewManager(QObject):
             )
             if template is not None:
                 self._template = template
-                self._fields = self._template_ctrl.load_layout(template_id)
+                self._fields = self._template_ctrl.load_all_layout(template_id)
                 self._schedule_update()
                 return
 

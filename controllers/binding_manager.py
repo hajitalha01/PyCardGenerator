@@ -165,7 +165,7 @@ class BindingManager(QObject):
                 self._model.template_name = template.template_name
 
                 fields: list[TemplateField] = (
-                    self._template_ctrl.load_layout(template_id)
+                    self._template_ctrl.load_all_layout(template_id)
                 )
                 self._model.load_template_fields(fields)
 

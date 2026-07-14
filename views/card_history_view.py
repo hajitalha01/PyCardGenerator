@@ -1033,7 +1033,7 @@ class CardHistoryView(QWidget):
                 )
                 return
 
-            fields = self._template_controller.load_layout(card.template_id)
+            fields = self._template_controller.load_all_layout(card.template_id)
 
             field_data: dict[str, str] = {}
             if card.employee_name is not None:
@@ -1182,7 +1182,7 @@ class CardHistoryView(QWidget):
                 )
                 return
 
-            fields = self._template_controller.load_layout(card.template_id)
+            fields = self._template_controller.load_all_layout(card.template_id)
 
             field_data: dict[str, str] = {}
             if card.employee_name is not None:

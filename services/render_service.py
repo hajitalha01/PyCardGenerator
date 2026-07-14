@@ -271,9 +271,16 @@ class RenderService:
         """
         ftype: str = field.field_type
 
-        # Text / date fields
+        # --- Static text: render the literal static_text directly ---
+        if field.is_static:
+            TextRenderer.render_text(canvas, field, field.static_text, px_per_mm)
+            return
+
+        # --- Dynamic text / date fields ---
+        # Use mapped_field for data lookup, fall back to field_name.
         if ftype in (FieldType.TEXT, FieldType.DATE):
-            user_value: str = field_data.get(field.field_name, "")
+            lookup_key: str = field.mapped_field or field.field_name
+            user_value: str = field_data.get(lookup_key, "")
             TextRenderer.render_text(canvas, field, user_value, px_per_mm)
 
         # Photo field
@@ -284,7 +291,8 @@ class RenderService:
 
         # Static image / logo
         elif ftype in (FieldType.STATIC_IMAGE, FieldType.ORGANIZATION_LOGO):
-            image_path: str | None = field_data.get(field.field_name)
+            lookup_key = field.mapped_field or field.field_name
+            image_path: str | None = field_data.get(lookup_key)
             if image_path:
                 img: Image.Image | None = self._image_renderer.load_image(
                     image_path

@@ -262,8 +262,23 @@ class BaseCanvasItem(QGraphicsObject):
         else:
             if self._snap_enabled:
                 self._snap_position()
+            self._snap_to_center()
             self.item_moved.emit(self, self.pos().x(), self.pos().y())
         super().mouseReleaseEvent(event)
+
+    def _snap_to_center(self) -> None:
+        """Snap the item's centre to the card centre if close enough."""
+        scene: QGraphicsScene | None = self.scene()
+        if scene is None:
+            return
+        sr: QRectF = scene.sceneRect()
+        cx: float = sr.center().x()
+        cy: float = sr.center().y()
+        pc: QPointF = self._rect.center() + self.pos()
+        if abs(pc.x() - cx) < SNAP_THRESHOLD:
+            self.setPos(cx - self._rect.center().x(), self.pos().y())
+        if abs(pc.y() - cy) < SNAP_THRESHOLD:
+            self.setPos(self.pos().x(), cy - self._rect.center().y())
 
     # ------------------------------------------------------------------
     # Resize logic
@@ -339,14 +354,10 @@ class BaseCanvasItem(QGraphicsObject):
         # Card centre vertical guide
         if abs(pc.x() - cx) < SNAP_THRESHOLD:
             lines.append((cx, sr.top(), cx, sr.bottom()))
-            if self._active_handle < 0:
-                self.setPos(cx - self._rect.center().x(), self.pos().y())
 
         # Card centre horizontal guide
         if abs(pc.y() - cy) < SNAP_THRESHOLD:
             lines.append((sr.left(), cy, sr.right(), cy))
-            if self._active_handle < 0:
-                self.setPos(self.pos().x(), cy - self._rect.center().y())
 
         for x1, y1, x2, y2 in lines:
             line: QGraphicsItem = scene.addLine(x1, y1, x2, y2, GUIDE_PEN)
@@ -491,23 +502,42 @@ class BaseCanvasItem(QGraphicsObject):
 class TextFieldItem(BaseCanvasItem):
     """An editable text field on the card canvas.
 
-    Displays sample text and a light-blue background.  Double-click
-    to edit the text in place.
+    Supports two modes:
+    - **Dynamic** (``is_static=False``): Label shows the field name,
+      linked to Card Generator form data via ``mapped_field``.
+    - **Static** (``is_static=True``): Hardcoded text that never changes.
+
+    Dynamic fields show a light-blue background; static fields use
+    light-yellow.
     """
 
-    _BG_BRUSH: QBrush = QBrush(QColor("#f0f8ff"))
+    _DYNAMIC_BRUSH: QBrush = QBrush(QColor("#f0f8ff"))
+    _STATIC_BRUSH: QBrush = QBrush(QColor("#fffff0"))
     _BORDER_PEN: QPen = QPen(QColor("#bbbbbb"), 1)
 
-    def __init__(self, x: float, y: float) -> None:
-        """Initialise a text field at *(x, y)* with default width/height.
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        is_static: bool = False,
+        mapped_field: str = "",
+        static_text: str = "",
+    ) -> None:
+        """Initialise a text field at *(x, y)*.
 
         Args:
             x: Scene X position.
             y: Scene Y position.
+            is_static: ``True`` for static labels, ``False`` for dynamic.
+            mapped_field: Semantic field name for dynamic fields
+                (e.g. ``"employee_name"``).
+            static_text: Literal text for static labels.
         """
         super().__init__(x, y, 180, 32)
         self._font: QFont = QFont("Arial", 12)
-        self._text: str = "Text Field"
+        self._is_static: bool = is_static
+        self._mapped_field: str = mapped_field
+        self._text: str = static_text if is_static else (mapped_field.replace("_", " ").title() if mapped_field else "Text Field")
         self._editing: bool = False
         self._text_item: QGraphicsTextItem | None = None
 
@@ -518,7 +548,7 @@ class TextFieldItem(BaseCanvasItem):
         widget: QWidget | None = None,
     ) -> None:
         """Draw the field background, text, and selection handles."""
-        painter.setBrush(self._BG_BRUSH)
+        painter.setBrush(self._DYNAMIC_BRUSH if not self._is_static else self._STATIC_BRUSH)
         painter.setPen(self._BORDER_PEN)
         painter.drawRect(self._rect)
 
@@ -527,6 +557,17 @@ class TextFieldItem(BaseCanvasItem):
             painter.setPen(QColor("#333333"))
             tr: QRectF = self._rect.adjusted(6, 4, -6, -4)
             painter.drawText(tr, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self._text)
+
+            # Show mapping indicator for dynamic fields
+            if self._is_static:
+                painter.setFont(QFont("Segoe UI", 7))
+                painter.setPen(QColor("#999999"))
+                painter.drawText(tr.adjusted(0, 0, 0, -14), Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight, "static")
+            elif self._mapped_field:
+                painter.setFont(QFont("Segoe UI", 7))
+                painter.setPen(QColor("#8888cc"))
+                field_label: str = self._mapped_field.replace("_", " ")
+                painter.drawText(tr.adjusted(0, 0, 0, -14), Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight, field_label)
 
         super().paint(painter, option, widget)
 
@@ -561,8 +602,12 @@ class TextFieldItem(BaseCanvasItem):
 
     def _clone(self) -> TextFieldItem:
         """Return a copy of this text field."""
-        item = TextFieldItem(0, 0)
-        item._text = self._text
+        item = TextFieldItem(
+            0, 0,
+            is_static=self._is_static,
+            mapped_field=self._mapped_field,
+            static_text=self._text if self._is_static else "",
+        )
         item._font = QFont(self._font)
         return item
 
@@ -571,19 +616,22 @@ class PhotoFieldItem(BaseCanvasItem):
     """An image / photo placeholder on the card canvas.
 
     Shows a camera icon placeholder and a dashed border.
+    Supports linking to the Card Generator photo via ``mapped_field``.
     """
 
     _PHOTO_BRUSH: QBrush = QBrush(QColor("#fafafa"))
     _DASHED_PEN: QPen = QPen(QColor("#aaaaaa"), 1.5, Qt.PenStyle.DashLine)
 
-    def __init__(self, x: float, y: float) -> None:
+    def __init__(self, x: float, y: float, mapped_field: str = "") -> None:
         """Initialise a photo field at *(x, y)*.
 
         Args:
             x: Scene X position.
             y: Scene Y position.
+            mapped_field: Semantic field name (e.g. ``"employee_photo"``).
         """
         super().__init__(x, y, 100, 120)
+        self._mapped_field: str = mapped_field
 
     def paint(
         self,
@@ -596,19 +644,20 @@ class PhotoFieldItem(BaseCanvasItem):
         painter.setPen(self._DASHED_PEN)
         painter.drawRect(self._rect)
 
+        label: str = self._mapped_field.replace("_", " ").title() if self._mapped_field else "Photo"
         painter.setFont(QFont("Segoe UI", 10))
         painter.setPen(QColor("#999999"))
         painter.drawText(
             self._rect,
             Qt.AlignmentFlag.AlignCenter,
-            "📷\nPhoto",
+            f"📷\n{label}",
         )
 
         super().paint(painter, option, widget)
 
     def _clone(self) -> PhotoFieldItem:
         """Return a copy of this photo field."""
-        return PhotoFieldItem(0, 0)
+        return PhotoFieldItem(0, 0, mapped_field=self._mapped_field)
 
 
 class RectangleItem(BaseCanvasItem):
@@ -751,3 +800,82 @@ class ImageItem(BaseCanvasItem):
 
     def _clone(self) -> ImageItem:
         return ImageItem(0, 0, self._image_path)
+
+
+class BackgroundItem(BaseCanvasItem):
+    """A background image item for the card canvas.
+
+    Behaves like a normal canvas item: selectable, draggable,
+    resizable with handles.  Constrained to remain inside the
+    card boundaries by default.
+    """
+
+    def __init__(self, x: float, y: float, w: float, h: float, image_path: str = "") -> None:
+        super().__init__(x, y, w, h)
+        self._image_path: str = image_path
+        self._pixmap: QPixmap | None = None
+        self._constraint_rect: QRectF | None = None
+        if image_path:
+            self._pixmap = QPixmap(image_path)
+
+    @property
+    def image_path(self) -> str:
+        return self._image_path
+
+    def set_image_path(self, path: str) -> None:
+        self._image_path = path
+        self._pixmap = QPixmap(path) if path else None
+        self.update()
+
+    def set_pixmap(self, pixmap: QPixmap) -> None:
+        self._pixmap = pixmap
+        self.update()
+
+    def set_constraint_rect(self, rect: QRectF) -> None:
+        self._constraint_rect = QRectF(rect)
+
+    def paint(
+        self,
+        painter: QPainter,
+        option: QStyle,
+        widget: QWidget | None = None,
+    ) -> None:
+        if self._pixmap and not self._pixmap.isNull():
+            scaled = self._pixmap.scaled(
+                int(self._rect.width()),
+                int(self._rect.height()),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            ox = (self._rect.width() - scaled.width()) / 2.0
+            oy = (self._rect.height() - scaled.height()) / 2.0
+            painter.drawPixmap(
+                self._rect.x() + ox,
+                self._rect.y() + oy,
+                scaled,
+            )
+        else:
+            painter.setBrush(QBrush(QColor("#f0f0f0")))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRect(self._rect)
+        super().paint(painter, option, widget)
+
+    def itemChange(self, change: QGraphicsItem.GraphicsItemChange, value):  # noqa: N802
+        if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange and self._constraint_rect is not None:
+            new_pos = QPointF(value) if not isinstance(value, QPointF) else value
+            clamped_x = max(
+                self._constraint_rect.left(),
+                min(new_pos.x(), self._constraint_rect.right() - max(self._rect.width(), MIN_ITEM_SIZE)),
+            )
+            clamped_y = max(
+                self._constraint_rect.top(),
+                min(new_pos.y(), self._constraint_rect.bottom() - max(self._rect.height(), MIN_ITEM_SIZE)),
+            )
+            return QPointF(clamped_x, clamped_y)
+        return super().itemChange(change, value)
+
+    def _clone(self) -> BackgroundItem:
+        item = BackgroundItem(0, 0, self._rect.width(), self._rect.height(), self._image_path)
+        if self._constraint_rect is not None:
+            item.set_constraint_rect(self._constraint_rect)
+        return item

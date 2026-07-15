@@ -782,6 +782,13 @@ class EditorCanvas(QGraphicsView):
                     is_static=field.is_static,
                     mapped_field=field.mapped_field,
                     static_text=field.static_text or field.field_name if field.is_static else "",
+                    font_family=field.font_family,
+                    font_size=field.font_size,
+                    font_color=field.font_color,
+                    bold=field.bold,
+                    italic=field.italic,
+                    underline=field.underline,
+                    alignment=field.alignment,
                 )
                 item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
             elif obj_type == "photo_field":
@@ -871,12 +878,26 @@ class EditorCanvas(QGraphicsView):
             is_static: bool = False
             static_text: str = ""
             field_name: str = f"field_{i}"
+            font_family: str = "Arial"
+            font_size: int = 12
+            font_color: str = "#000000"
+            bold: bool = False
+            italic: bool = False
+            underline: bool = False
+            alignment: str = "left"
 
             if isinstance(scene_item, TextFieldItem):
                 mapped_field = scene_item._mapped_field
                 is_static = scene_item._is_static
                 static_text = scene_item._text if is_static else ""
                 field_name = mapped_field or field_name
+                font_family = scene_item._font_family
+                font_size = scene_item._font_size
+                font_color = scene_item._font_color
+                bold = scene_item._bold
+                italic = scene_item._italic
+                underline = scene_item._underline
+                alignment = scene_item._alignment
             if isinstance(scene_item, PhotoFieldItem):
                 mapped_field = scene_item._mapped_field
                 field_name = mapped_field or field_name
@@ -896,6 +917,13 @@ class EditorCanvas(QGraphicsView):
                 y=round(y_mm, 2),
                 width=round(max(w_mm, 5.0), 2),
                 height=round(max(h_mm, 5.0), 2),
+                font_family=font_family,
+                font_size=font_size,
+                font_color=font_color,
+                bold=bold,
+                italic=italic,
+                underline=underline,
+                alignment=alignment,
                 z_order=i,
                 page_side=page_side,
                 created_at=now,
@@ -941,7 +969,17 @@ class EditorCanvas(QGraphicsView):
             return
 
         # --- Delete ---
-        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and selected:
+        # If a text item is being edited, let the event propagate to the
+        # editing overlay so Backspace/Delete edit text instead of deleting
+        # the item.
+        if any(
+            isinstance(item, TextFieldItem) and item._editing
+            for item in selected
+        ):
+            super().keyPressEvent(event)
+            return
+        # Only Delete (not Backspace) removes selected items.
+        if key == Qt.Key.Key_Delete and selected:
             for item in selected:
                 item._delete_action()
             event.accept()
@@ -1031,8 +1069,15 @@ class EditorCanvas(QGraphicsView):
         self.mouse_position_changed.emit(scene_pos.x(), scene_pos.y())
         super().mouseMoveEvent(event)
 
+    def _finish_all_editing(self) -> None:
+        """Finish text editing on any currently-editing TextFieldItem."""
+        for item in self._scene.items():
+            if isinstance(item, TextFieldItem) and item._editing:
+                item._finish_editing()
+
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         """Handle Ctrl+click for multi-selection and record pre-drag state."""
+        self._finish_all_editing()
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             item = self.itemAt(event.position().toPoint())
             if item is not None and isinstance(item, QGraphicsItem):

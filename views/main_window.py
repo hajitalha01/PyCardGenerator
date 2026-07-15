@@ -185,7 +185,7 @@ class MainWindow(QMainWindow):
 
         layout.addStretch()
 
-        version_label: QLabel = QLabel(f"v{APP_VERSION}")
+        version_label: QLabel = QLabel("Product by Tatheer Fatima")
         version_label.setObjectName("sidebarVersion")
         version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(version_label)

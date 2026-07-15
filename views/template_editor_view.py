@@ -10,10 +10,11 @@ import logging
 import traceback
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -280,6 +281,7 @@ class TemplateEditorView(QWidget):
         self._width_spin.setRange(10.0, 200.0)
         self._width_spin.setValue(CARD_WIDTH_MM)
         self._width_spin.setSuffix(" mm")
+        self._width_spin.setEnabled(False)
         form.addRow("Card Width:", self._width_spin)
 
         self._height_spin: QDoubleSpinBox = QDoubleSpinBox()
@@ -287,9 +289,25 @@ class TemplateEditorView(QWidget):
         self._height_spin.setRange(10.0, 150.0)
         self._height_spin.setValue(CARD_HEIGHT_MM)
         self._height_spin.setSuffix(" mm")
+        self._height_spin.setEnabled(False)
         form.addRow("Card Height:", self._height_spin)
 
         layout.addLayout(form)
+
+        # Lock toggle
+        self._size_lock_btn: QPushButton = QPushButton("🔒")
+        self._size_lock_btn.setObjectName("sizeLockBtn")
+        self._size_lock_btn.setCheckable(True)
+        self._size_lock_btn.setChecked(True)
+        self._size_lock_btn.setFixedSize(32, 28)
+        self._size_lock_btn.setToolTip("Lock / Unlock card size")
+        self._size_lock_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        lock_row: QWidget = QWidget()
+        lock_layout: QHBoxLayout = QHBoxLayout(lock_row)
+        lock_layout.setContentsMargins(0, 0, 0, 0)
+        lock_layout.addStretch()
+        lock_layout.addWidget(self._size_lock_btn)
+        layout.addWidget(lock_row)
 
         # --- Grid section ---
         layout.addWidget(self._make_section_title("Grid"))
@@ -314,6 +332,11 @@ class TemplateEditorView(QWidget):
         self._snap_check.setObjectName("fieldInput")
         self._snap_check.setChecked(True)
         layout.addWidget(self._snap_check)
+
+        # --- Text Formatting section ---
+        self._text_format_widget: QWidget = self._build_text_format_section()
+        layout.addWidget(self._text_format_widget)
+        self._text_format_widget.setVisible(False)
 
         layout.addStretch()
         scroll.setWidget(container)
@@ -539,6 +562,194 @@ class TemplateEditorView(QWidget):
         return row
 
     # ------------------------------------------------------------------
+    # Text Formatting panel
+    # ------------------------------------------------------------------
+
+    def _build_text_format_section(self) -> QWidget:
+        """Build the text formatting control section for the properties panel.
+
+        Returns:
+            A widget containing font, size, style, color, and alignment
+            controls.  Initially hidden; shown when a ``TextFieldItem``
+            is selected.
+        """
+        container: QWidget = QWidget()
+        container.setObjectName("textFormatContainer")
+        layout: QVBoxLayout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        layout.addWidget(self._make_section_title("Text Formatting"))
+
+        # Font Family
+        self._text_font_family: QComboBox = QComboBox()
+        self._text_font_family.setObjectName("fieldInput")
+        self._text_font_family.addItems([
+            "Arial", "Calibri", "Times New Roman", "Verdana",
+            "Tahoma", "Segoe UI", "Georgia", "Courier New",
+            "Trebuchet MS", "Comic Sans MS",
+        ])
+        layout.addWidget(self._make_field_row("Font:", self._text_font_family))
+
+        # Font Size
+        self._text_font_size: QSpinBox = QSpinBox()
+        self._text_font_size.setObjectName("fieldInput")
+        self._text_font_size.setRange(1, 200)
+        self._text_font_size.setValue(12)
+        layout.addWidget(self._make_field_row("Size:", self._text_font_size))
+
+        # Style row: Bold / Italic / Underline
+        style_row: QWidget = QWidget()
+        style_layout: QHBoxLayout = QHBoxLayout(style_row)
+        style_layout.setContentsMargins(0, 0, 0, 0)
+        style_layout.setSpacing(4)
+
+        self._text_bold: QCheckBox = QCheckBox("B")
+        self._text_bold.setObjectName("textStyleCb")
+        self._text_bold.setToolTip("Bold")
+        self._text_bold.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self._text_italic: QCheckBox = QCheckBox("I")
+        self._text_italic.setObjectName("textStyleCb")
+        self._text_italic.setToolTip("Italic")
+        self._text_italic.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self._text_underline: QCheckBox = QCheckBox("U")
+        self._text_underline.setObjectName("textStyleCb")
+        self._text_underline.setToolTip("Underline")
+        self._text_underline.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        style_layout.addWidget(self._text_bold)
+        style_layout.addWidget(self._text_italic)
+        style_layout.addWidget(self._text_underline)
+        style_layout.addStretch()
+        layout.addWidget(style_row)
+
+        # Text Color
+        color_row: QWidget = QWidget()
+        color_layout: QHBoxLayout = QHBoxLayout(color_row)
+        color_layout.setContentsMargins(0, 0, 0, 0)
+        color_layout.setSpacing(8)
+
+        color_label: QLabel = QLabel("Color:")
+        color_label.setObjectName("fieldLabel")
+        color_layout.addWidget(color_label)
+
+        self._text_color_btn: QPushButton = QPushButton()
+        self._text_color_btn.setFixedSize(32, 24)
+        self._text_color_btn.setToolTip("Click to change text colour")
+        self._text_color_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._text_color_btn.setStyleSheet(
+            "background-color: #000000; border: 1px solid #ccc; border-radius: 3px;"
+        )
+        color_layout.addWidget(self._text_color_btn)
+        color_layout.addStretch()
+        layout.addWidget(color_row)
+
+        # Alignment
+        self._text_alignment: QComboBox = QComboBox()
+        self._text_alignment.setObjectName("fieldInput")
+        self._text_alignment.addItems(["Left", "Center", "Right"])
+        layout.addWidget(self._make_field_row("Align:", self._text_alignment))
+
+        return container
+
+    def _get_selected_text_item(
+        self,
+    ) -> "TextFieldItem | None":  # noqa: F821
+        """Return the first selected ``TextFieldItem``, or ``None``."""
+        from views.widgets.canvas_items import TextFieldItem  # noqa: PLC0415
+
+        selected = self._canvas.selected_canvas_items()
+        for s in selected:
+            if isinstance(s, TextFieldItem):
+                return s
+        return None
+
+    def _populate_text_format_panel(self, item: "TextFieldItem") -> None:  # noqa: F821
+        """Fill the text formatting controls from *item* without firing signals."""
+        from views.widgets.canvas_items import TextFieldItem  # noqa: PLC0415
+
+        # Block signals so population does not trigger update slots
+        self._text_font_family.blockSignals(True)
+        self._text_font_size.blockSignals(True)
+        self._text_bold.blockSignals(True)
+        self._text_italic.blockSignals(True)
+        self._text_underline.blockSignals(True)
+        self._text_alignment.blockSignals(True)
+
+        self._text_font_family.setCurrentText(item.font_family)
+        self._text_font_size.setValue(item.font_size)
+        self._text_bold.setChecked(item.bold)
+        self._text_italic.setChecked(item.italic)
+        self._text_underline.setChecked(item.underline)
+
+        align_map: dict[str, int] = {"left": 0, "center": 1, "right": 2}
+        self._text_alignment.setCurrentIndex(align_map.get(item.alignment, 0))
+
+        self._update_color_button(item.font_color)
+
+        self._text_font_family.blockSignals(False)
+        self._text_font_size.blockSignals(False)
+        self._text_bold.blockSignals(False)
+        self._text_italic.blockSignals(False)
+        self._text_underline.blockSignals(False)
+        self._text_alignment.blockSignals(False)
+
+    def _update_color_button(self, hex_color: str) -> None:
+        """Update the colour button's swatch to reflect *hex_color*."""
+        self._text_color_btn.setStyleSheet(
+            f"background-color: {hex_color}; border: 1px solid #ccc; border-radius: 3px;"
+        )
+
+    # ------------------------------------------------------------------
+    # Text formatting signal handlers
+    # ------------------------------------------------------------------
+
+    def _on_text_font_family_changed(self, family: str) -> None:
+        item = self._get_selected_text_item()
+        if item is not None:
+            item.font_family = family
+
+    def _on_text_font_size_changed(self, size: int) -> None:
+        item = self._get_selected_text_item()
+        if item is not None:
+            item.font_size = size
+
+    def _on_text_bold_changed(self, checked: bool) -> None:
+        item = self._get_selected_text_item()
+        if item is not None:
+            item.bold = checked
+
+    def _on_text_italic_changed(self, checked: bool) -> None:
+        item = self._get_selected_text_item()
+        if item is not None:
+            item.italic = checked
+
+    def _on_text_underline_changed(self, checked: bool) -> None:
+        item = self._get_selected_text_item()
+        if item is not None:
+            item.underline = checked
+
+    def _on_text_alignment_changed(self, text: str) -> None:
+        item = self._get_selected_text_item()
+        if item is not None:
+            align_map: dict[str, str] = {"Left": "left", "Center": "center", "Right": "right"}
+            item.alignment = align_map.get(text, "left")
+
+    def _on_text_color_clicked(self) -> None:
+        """Open a colour picker and apply the chosen colour."""
+        item = self._get_selected_text_item()
+        if item is None:
+            return
+        initial: QColor = QColor(item.font_color)
+        color: QColor = QColorDialog.getColor(initial, self, "Select Text Colour")
+        if color.isValid():
+            hex_color: str = color.name()
+            item.font_color = hex_color
+            self._update_color_button(hex_color)
+
+    # ------------------------------------------------------------------
     # Signal connections
     # ------------------------------------------------------------------
 
@@ -567,9 +778,25 @@ class TemplateEditorView(QWidget):
         # Card size changes
         self._width_spin.valueChanged.connect(self._on_card_size_changed)
         self._height_spin.valueChanged.connect(self._on_card_size_changed)
+        self._size_lock_btn.toggled.connect(self._on_size_lock_toggled)
 
         # Canvas card resize signal
         self._canvas.card_resized.connect(self._on_canvas_card_resized)
+
+        # Text formatting controls
+        self._text_font_family.currentTextChanged.connect(
+            self._on_text_font_family_changed
+        )
+        self._text_font_size.valueChanged.connect(
+            self._on_text_font_size_changed
+        )
+        self._text_bold.toggled.connect(self._on_text_bold_changed)
+        self._text_italic.toggled.connect(self._on_text_italic_changed)
+        self._text_underline.toggled.connect(self._on_text_underline_changed)
+        self._text_alignment.currentTextChanged.connect(
+            self._on_text_alignment_changed
+        )
+        self._text_color_btn.clicked.connect(self._on_text_color_clicked)
 
         # Save / open toolbar buttons
         self.save_requested.connect(self._on_save)
@@ -634,6 +861,12 @@ class TemplateEditorView(QWidget):
             self._snap_check.setChecked(template.snap_to_grid)
             self._canvas.set_snap_enabled(template.snap_to_grid)
             self._canvas.set_snap_size(template.grid_size)
+
+            # Restore size lock state
+            self._size_lock_btn.blockSignals(True)
+            self._size_lock_btn.setChecked(template.size_locked)
+            self._size_lock_btn.blockSignals(False)
+            self._on_size_lock_toggled(template.size_locked)
 
             # Set current page side
             self._current_page_side = "front"
@@ -705,6 +938,7 @@ class TemplateEditorView(QWidget):
         template.canvas_height = self._height_spin.value()
         template.grid_size = self._grid_spin.value()
         template.snap_to_grid = self._snap_check.isChecked()
+        template.size_locked = self._size_lock_btn.isChecked()
 
         # Update per-side bg info from current canvas state
         current_bg = self._canvas.get_background_info()
@@ -808,6 +1042,16 @@ class TemplateEditorView(QWidget):
         self._status_size.setText(f"{card_w:.0f} × {card_h:.0f} px")
 
     # ------------------------------------------------------------------
+    # Size lock toggle
+    # ------------------------------------------------------------------
+
+    def _on_size_lock_toggled(self, locked: bool) -> None:
+        """Enable or disable the card size controls."""
+        self._size_lock_btn.setText("🔒" if locked else "🔓")
+        self._width_spin.setEnabled(not locked)
+        self._height_spin.setEnabled(not locked)
+
+    # ------------------------------------------------------------------
     # Toolbox button handlers
     # ------------------------------------------------------------------
 
@@ -907,7 +1151,7 @@ class TemplateEditorView(QWidget):
     # ------------------------------------------------------------------
 
     def _on_object_selected(self, item: object) -> None:
-        """Update the status bar and inspector with the selected object.
+        """Update the status bar, inspector, and text formatting panel.
 
         Args:
             item: The selected canvas item.
@@ -926,24 +1170,35 @@ class TemplateEditorView(QWidget):
 
         if isinstance(item, TextFieldItem):
             name: str = "Text Field"
+            self._text_format_widget.setVisible(True)
+            self._populate_text_format_panel(item)
         elif isinstance(item, PhotoFieldItem):
             name = "Photo Field"
+            self._text_format_widget.setVisible(False)
         elif isinstance(item, RectangleItem):
             name = "Rectangle"
+            self._text_format_widget.setVisible(False)
         elif isinstance(item, CircleItem):
             name = "Circle"
+            self._text_format_widget.setVisible(False)
         elif isinstance(item, HorizontalLineItem):
             name = "Horizontal Line"
+            self._text_format_widget.setVisible(False)
         elif isinstance(item, VerticalLineItem):
             name = "Vertical Line"
+            self._text_format_widget.setVisible(False)
         elif isinstance(item, ImageItem):
             name = "Image"
+            self._text_format_widget.setVisible(False)
         elif isinstance(item, BackgroundItem):
             name = "Background Image"
+            self._text_format_widget.setVisible(False)
         elif isinstance(item, BaseCanvasItem):
             name = "Canvas Item"
+            self._text_format_widget.setVisible(False)
         else:
             name = "Unknown"
+            self._text_format_widget.setVisible(False)
 
         self._status_object.setText(f"Object: {name}")
         self._inspector_label.setText(f"Selected: {name}")
@@ -954,5 +1209,6 @@ class TemplateEditorView(QWidget):
         if selected:
             self._on_object_selected(selected[-1])
         else:
+            self._text_format_widget.setVisible(False)
             self._status_object.setText("Object: None")
             self._inspector_label.setText("No object selected")

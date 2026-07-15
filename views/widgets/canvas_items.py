@@ -21,6 +21,7 @@ from PySide6.QtGui import (
     QPixmap,
 )
 from PySide6.QtWidgets import (
+    QColorDialog,
     QFileDialog,
     QGraphicsItem,
     QGraphicsObject,
@@ -31,6 +32,8 @@ from PySide6.QtWidgets import (
     QStyle,
     QWidget,
 )
+
+from models.field import TemplateField
 
 
 # ---------------------------------------------------------------------------
@@ -499,6 +502,25 @@ class BaseCanvasItem(QGraphicsObject):
 # ===================================================================
 
 
+class _EditTextItem(QGraphicsTextItem):
+    """Internal text-editing overlay that exits edit mode on focus loss / Escape."""
+
+    def __init__(self, text: str, parent_item: TextFieldItem) -> None:
+        super().__init__(text, parent_item)
+        self._parent_item: TextFieldItem = parent_item
+
+    def focusOutEvent(self, event) -> None:  # noqa: N802
+        self._parent_item._finish_editing()
+        super().focusOutEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() == Qt.Key.Key_Escape:
+            self._parent_item._finish_editing()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class TextFieldItem(BaseCanvasItem):
     """An editable text field on the card canvas.
 
@@ -522,6 +544,13 @@ class TextFieldItem(BaseCanvasItem):
         is_static: bool = False,
         mapped_field: str = "",
         static_text: str = "",
+        font_family: str = "Arial",
+        font_size: int = 12,
+        font_color: str = "#000000",
+        bold: bool = False,
+        italic: bool = False,
+        underline: bool = False,
+        alignment: str = "left",
     ) -> None:
         """Initialise a text field at *(x, y)*.
 
@@ -532,14 +561,167 @@ class TextFieldItem(BaseCanvasItem):
             mapped_field: Semantic field name for dynamic fields
                 (e.g. ``"employee_name"``).
             static_text: Literal text for static labels.
+            font_family: Font family name.
+            font_size: Font size in points.
+            font_color: Hex colour string (e.g. ``'#000000'``).
+            bold: Whether text is bold.
+            italic: Whether text is italic.
+            underline: Whether text is underlined.
+            alignment: Text alignment (``'left'``, ``'center'``, ``'right'``).
         """
         super().__init__(x, y, 180, 32)
-        self._font: QFont = QFont("Arial", 12)
+        self._font_family: str = font_family
+        self._font_size: int = font_size
+        self._font_color: str = font_color
+        self._bold: bool = bold
+        self._italic: bool = italic
+        self._underline: bool = underline
+        self._alignment: str = alignment
+        self._font: QFont = self._build_qfont()
         self._is_static: bool = is_static
         self._mapped_field: str = mapped_field
         self._text: str = static_text if is_static else (mapped_field.replace("_", " ").title() if mapped_field else "Text Field")
         self._editing: bool = False
-        self._text_item: QGraphicsTextItem | None = None
+        self._text_item: _EditTextItem | None = None
+
+    # ------------------------------------------------------------------
+    # Font property accessors
+    # ------------------------------------------------------------------
+
+    def _build_qfont(self) -> QFont:
+        """Build a QFont from the current font properties."""
+        f: QFont = QFont(self._font_family, self._font_size)
+        f.setBold(self._bold)
+        f.setItalic(self._italic)
+        f.setUnderline(self._underline)
+        return f
+
+    @property
+    def font_family(self) -> str:
+        """Font family name."""
+        return self._font_family
+
+    @font_family.setter
+    def font_family(self, family: str) -> None:
+        if family != self._font_family:
+            self._font_family = family
+            self._font = self._build_qfont()
+            self._sync_edit_item_font()
+            self.update()
+
+    @property
+    def font_size(self) -> int:
+        """Font size in points."""
+        return self._font_size
+
+    @font_size.setter
+    def font_size(self, size: int) -> None:
+        if size != self._font_size:
+            self._font_size = max(1, size)
+            self._font = self._build_qfont()
+            self._sync_edit_item_font()
+            self.update()
+
+    @property
+    def font_color(self) -> str:
+        """Text colour as hex string."""
+        return self._font_color
+
+    @font_color.setter
+    def font_color(self, color: str) -> None:
+        if color != self._font_color:
+            self._font_color = color
+            self.update()
+
+    @property
+    def bold(self) -> bool:
+        """Whether text is bold."""
+        return self._bold
+
+    @bold.setter
+    def bold(self, b: bool) -> None:
+        if b != self._bold:
+            self._bold = b
+            self._font = self._build_qfont()
+            self._sync_edit_item_font()
+            self.update()
+
+    @property
+    def italic(self) -> bool:
+        """Whether text is italic."""
+        return self._italic
+
+    @italic.setter
+    def italic(self, i: bool) -> None:
+        if i != self._italic:
+            self._italic = i
+            self._font = self._build_qfont()
+            self._sync_edit_item_font()
+            self.update()
+
+    @property
+    def underline(self) -> bool:
+        """Whether text is underlined."""
+        return self._underline
+
+    @underline.setter
+    def underline(self, u: bool) -> None:
+        if u != self._underline:
+            self._underline = u
+            self._font = self._build_qfont()
+            self._sync_edit_item_font()
+            self.update()
+
+    @property
+    def alignment(self) -> str:
+        """Text alignment (``'left'``, ``'center'``, ``'right'``)."""
+        return self._alignment
+
+    @alignment.setter
+    def alignment(self, a: str) -> None:
+        if a != self._alignment:
+            self._alignment = a
+            self.update()
+
+    def _sync_edit_item_font(self) -> None:
+        """Push the current font to the editing overlay if active."""
+        if self._editing and self._text_item is not None:
+            self._text_item.setFont(self._font)
+
+    # ------------------------------------------------------------------
+    # Field data transfer
+    # ------------------------------------------------------------------
+
+    def load_from_field(self, field: TemplateField) -> None:
+        """Apply all visual properties from a ``TemplateField``.
+
+        Args:
+            field: The field data source.
+        """
+        self._font_family = field.font_family
+        self._font_size = field.font_size
+        self._font_color = field.font_color
+        self._bold = field.bold
+        self._italic = field.italic
+        self._underline = field.underline
+        self._alignment = field.alignment
+        self._font = self._build_qfont()
+        self._sync_edit_item_font()
+        self.update()
+
+    def populate_field(self, field: TemplateField) -> None:
+        """Set font-related properties on a ``TemplateField``.
+
+        Args:
+            field: The field to populate.
+        """
+        field.font_family = self._font_family
+        field.font_size = self._font_size
+        field.font_color = self._font_color
+        field.bold = self._bold
+        field.italic = self._italic
+        field.underline = self._underline
+        field.alignment = self._alignment
 
     def paint(
         self,
@@ -554,9 +736,17 @@ class TextFieldItem(BaseCanvasItem):
 
         if not self._editing:
             painter.setFont(self._font)
-            painter.setPen(QColor("#333333"))
+            painter.setPen(QColor(self._font_color))
             tr: QRectF = self._rect.adjusted(6, 4, -6, -4)
-            painter.drawText(tr, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, self._text)
+
+            # Resolve alignment flag
+            align: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            if self._alignment == "center":
+                align = Qt.AlignmentFlag.AlignCenter
+            elif self._alignment == "right":
+                align = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+
+            painter.drawText(tr, align, self._text)
 
             # Show mapping indicator for dynamic fields
             if self._is_static:
@@ -572,10 +762,24 @@ class TextFieldItem(BaseCanvasItem):
         super().paint(painter, option, widget)
 
     def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:  # noqa: N802
-        """Enter text-editing mode on double-click."""
+        """Enter text-editing mode on double-click for static text only.
+
+        Dynamic fields are not editable (they are bound to form data) —
+        only the formatting panel is shown via single-click selection.
+        """
+        if not self._is_static:
+            event.accept()
+            return
+        self._start_editing()
+
+    def _start_editing(self) -> None:
+        """Create an inline text editor overlay for static text."""
+        if self._editing:
+            return
         self._editing = True
-        self._text_item = QGraphicsTextItem(self._text, self)
+        self._text_item = _EditTextItem(self._text, self)
         self._text_item.setFont(self._font)
+        self._text_item.setDefaultTextColor(QColor(self._font_color))
         self._text_item.setPos(6, 4)
         self._text_item.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextEditorInteraction
@@ -592,10 +796,14 @@ class TextFieldItem(BaseCanvasItem):
 
     def _finish_editing(self) -> None:
         """Exit text-editing mode."""
+        if not self._editing:
+            return
         self._editing = False
         if self._text_item is not None:
             self._text = self._text_item.toPlainText()
-            self.scene().removeItem(self._text_item)
+            scene = self.scene()
+            if scene is not None:
+                scene.removeItem(self._text_item)
             self._text_item = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
         self.update()
@@ -607,8 +815,14 @@ class TextFieldItem(BaseCanvasItem):
             is_static=self._is_static,
             mapped_field=self._mapped_field,
             static_text=self._text if self._is_static else "",
+            font_family=self._font_family,
+            font_size=self._font_size,
+            font_color=self._font_color,
+            bold=self._bold,
+            italic=self._italic,
+            underline=self._underline,
+            alignment=self._alignment,
         )
-        item._font = QFont(self._font)
         return item
 
 

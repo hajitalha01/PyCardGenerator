@@ -53,5 +53,6 @@ class CardTemplate:
     grid_size: int = 10
     snap_to_grid: bool = True
     zoom_level: float = 100.0
+    size_locked: bool = True
     created_at: str | None = None
     updated_at: str | None = None

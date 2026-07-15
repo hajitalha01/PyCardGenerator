@@ -30,13 +30,21 @@ _TEMPLATE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("grid_size", "INTEGER NOT NULL DEFAULT 10"),
     ("snap_to_grid", "INTEGER NOT NULL DEFAULT 1"),
     ("zoom_level", "REAL NOT NULL DEFAULT 100.0"),
+    ("size_locked", "INTEGER NOT NULL DEFAULT 1"),
 )
 
 _FIELD_COLUMNS: tuple[tuple[str, str], ...] = (
     ("object_type", "TEXT NOT NULL DEFAULT 'text_field'"),
     ("display_name", "TEXT NOT NULL DEFAULT ''"),
+    ("font_family", "TEXT NOT NULL DEFAULT 'Arial'"),
+    ("font_size", "INTEGER NOT NULL DEFAULT 12"),
+    ("font_color", "TEXT NOT NULL DEFAULT '#000000'"),
     ("background_color", "TEXT NOT NULL DEFAULT '#FFFFFF'"),
+    ("bold", "INTEGER NOT NULL DEFAULT 0"),
+    ("italic", "INTEGER NOT NULL DEFAULT 0"),
     ("underline", "INTEGER NOT NULL DEFAULT 0"),
+    ("alignment", "TEXT NOT NULL DEFAULT 'left'"),
+    ("rotation", "INTEGER NOT NULL DEFAULT 0"),
     ("opacity", "REAL NOT NULL DEFAULT 1.0"),
     ("visible", "INTEGER NOT NULL DEFAULT 1"),
     ("locked", "INTEGER NOT NULL DEFAULT 0"),
@@ -73,6 +81,7 @@ def _row_to_template(row: sqlite3.Row) -> CardTemplate:
         grid_size=row["grid_size"],
         snap_to_grid=bool(row["snap_to_grid"]),
         zoom_level=row["zoom_level"],
+        size_locked=bool(row["size_locked"]),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )
@@ -186,8 +195,9 @@ class TemplateRepository:
                 back_bg_pos_x, back_bg_pos_y,
                 back_bg_width, back_bg_height,
                 grid_size, snap_to_grid, zoom_level,
+                size_locked,
                 created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 template.template_name,
                 template.front_image,
@@ -205,6 +215,7 @@ class TemplateRepository:
                 template.grid_size,
                 int(template.snap_to_grid),
                 template.zoom_level,
+                int(template.size_locked),
                 now,
                 now,
             ),
@@ -256,9 +267,10 @@ class TemplateRepository:
                front_bg_width = ?, front_bg_height = ?,
                back_bg_pos_x = ?, back_bg_pos_y = ?,
                back_bg_width = ?, back_bg_height = ?,
-               grid_size = ?, snap_to_grid = ?, zoom_level = ?,
-               updated_at = ?
-               WHERE id = ?""",
+                grid_size = ?, snap_to_grid = ?, zoom_level = ?,
+                size_locked = ?,
+                updated_at = ?
+                WHERE id = ?""",
             (
                 template.template_name,
                 template.front_image,
@@ -276,6 +288,7 @@ class TemplateRepository:
                 template.grid_size,
                 int(template.snap_to_grid),
                 template.zoom_level,
+                int(template.size_locked),
                 now,
                 template.id,
             ),

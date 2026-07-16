@@ -79,6 +79,7 @@ class CardGeneratorView(QWidget):
 
         self._photo_path: str = ""
         self._active_side: str = "front"
+        self._editing_dep_index: int | None = None
 
         # Template data access
         self._template_ctrl: TemplateController = TemplateController()
@@ -350,8 +351,8 @@ class CardGeneratorView(QWidget):
         """Build the Back-side input form with dependents management.
 
         Returns:
-            A widget containing the dependents table, add form,
-            and Add Dependent button.
+            A widget containing the inline add/edit form, dependents
+            table, and action buttons.
         """
         container: QWidget = QWidget()
         layout: QVBoxLayout = QVBoxLayout(container)
@@ -366,7 +367,7 @@ class CardGeneratorView(QWidget):
         dependents_title.setObjectName("formSectionTitle")
         layout.addWidget(dependents_title)
 
-        # --- Inline add-dependent form (hidden by default) ---
+        # --- Inline add/edit form (hidden by default) ---
         self._dep_form_widget = QWidget()
         self._dep_form_widget.setObjectName("dependentForm")
         self._dep_form_widget.setVisible(False)
@@ -412,14 +413,6 @@ class CardGeneratorView(QWidget):
 
         layout.addWidget(self._dep_form_widget)
 
-        # --- Add Dependent button ---
-        self._add_dep_btn: QPushButton = QPushButton("Add Dependent")
-        self._add_dep_btn.setObjectName("actionButton")
-        self._add_dep_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._add_dep_btn.setToolTip("Add a new dependent record")
-        self._add_dep_btn.clicked.connect(self._on_add_dependent)
-        layout.addWidget(self._add_dep_btn)
-
         # --- Dependents table ---
         self._dependents_table: QTableWidget = QTableWidget()
         self._dependents_table.setObjectName("dependentsTable")
@@ -439,6 +432,48 @@ class CardGeneratorView(QWidget):
         )
         self._dependents_table.setMinimumHeight(120)
         layout.addWidget(self._dependents_table)
+
+        # --- Action buttons (below table) ---
+        btn_layout: QHBoxLayout = QHBoxLayout()
+        btn_layout.setSpacing(8)
+
+        self._add_dep_btn = QPushButton("+ Add Dependent")
+        self._add_dep_btn.setObjectName("actionButton")
+        self._add_dep_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add_dep_btn.setToolTip("Add a new dependent record")
+        self._add_dep_btn.clicked.connect(self._on_add_dependent)
+        btn_layout.addWidget(self._add_dep_btn)
+
+        self._edit_dep_btn = QPushButton("Edit Selected")
+        self._edit_dep_btn.setObjectName("actionButton")
+        self._edit_dep_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._edit_dep_btn.setToolTip("Edit the selected dependent")
+        self._edit_dep_btn.clicked.connect(self._on_edit_dependent)
+        btn_layout.addWidget(self._edit_dep_btn)
+
+        self._remove_dep_btn = QPushButton("Remove Selected")
+        self._remove_dep_btn.setObjectName("actionButton")
+        self._remove_dep_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._remove_dep_btn.setToolTip("Remove the selected dependent")
+        self._remove_dep_btn.clicked.connect(self._on_remove_dependent)
+        btn_layout.addWidget(self._remove_dep_btn)
+
+        self._clear_all_btn = QPushButton("Clear All")
+        self._clear_all_btn.setObjectName("actionButton")
+        self._clear_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._clear_all_btn.setToolTip("Remove all dependents")
+        self._clear_all_btn.clicked.connect(self._on_clear_all_dependents)
+        btn_layout.addWidget(self._clear_all_btn)
+
+        self._reset_form_btn = QPushButton("Reset Form")
+        self._reset_form_btn.setObjectName("actionButton")
+        self._reset_form_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._reset_form_btn.setToolTip("Clear input fields only, keep dependents")
+        self._reset_form_btn.clicked.connect(self._on_reset_form)
+        btn_layout.addWidget(self._reset_form_btn)
+
+        layout.addLayout(btn_layout)
+        layout.addStretch()
 
         return container
 
@@ -689,12 +724,14 @@ class CardGeneratorView(QWidget):
     # ------------------------------------------------------------------
 
     def _on_add_dependent(self) -> None:
-        """Show the inline add-dependent form."""
+        """Show the inline form to add a new dependent."""
+        self._editing_dep_index = None
         self._dep_form_widget.setVisible(True)
         self._add_dep_btn.setEnabled(False)
+        self._dep_name_input.setFocus()
 
     def _on_save_dependent(self) -> None:
-        """Save the current dependent entry and refresh the table."""
+        """Save (add or update) the dependent and refresh everything."""
         name: str = self._dep_name_input.text().strip()
         relation: str = self._dep_relation_input.text().strip()
         dob: str = self._dep_dob_input.text().strip()
@@ -705,6 +742,7 @@ class CardGeneratorView(QWidget):
                 self, "Validation Error",
                 "Dependent name is required.",
             )
+            self._dep_name_input.setFocus()
             return
 
         dependent: dict = {
@@ -713,20 +751,120 @@ class CardGeneratorView(QWidget):
             "date_of_birth": dob,
             "cnic": cnic,
         }
-        self._binding_manager.add_dependent(dependent)
+
+        if self._editing_dep_index is not None:
+            self._binding_manager.update_dependent(
+                self._editing_dep_index, dependent
+            )
+        else:
+            self._binding_manager.add_dependent(dependent)
+
+        self._editing_dep_index = None
         self._refresh_dependents_table()
         self._clear_dependent_form()
         self._dep_form_widget.setVisible(False)
         self._add_dep_btn.setEnabled(True)
+        self._dep_name_input.setFocus()
 
     def _on_cancel_dependent(self) -> None:
-        """Cancel adding a dependent and hide the form."""
+        """Cancel adding/editing and hide the form."""
+        self._editing_dep_index = None
         self._clear_dependent_form()
         self._dep_form_widget.setVisible(False)
         self._add_dep_btn.setEnabled(True)
 
+    def _on_edit_dependent(self) -> None:
+        """Load the selected row into the form for editing."""
+        rows: set[int] = {
+            r.row()
+            for r in self._dependents_table.selectedIndexes()
+        }
+        if not rows:
+            QMessageBox.information(
+                self, "No Selection",
+                "Please select a dependent first.",
+            )
+            return
+
+        index: int = rows.pop()
+        deps: list[dict] = self._binding_manager.model.dependents
+        if index < 0 or index >= len(deps):
+            return
+
+        dep: dict = deps[index]
+        self._dep_name_input.setText(dep.get("name", ""))
+        self._dep_relation_input.setText(dep.get("relation", ""))
+        self._dep_dob_input.setText(dep.get("date_of_birth", ""))
+        self._dep_cnic_input.setText(dep.get("cnic", ""))
+
+        self._editing_dep_index = index
+        self._dep_form_widget.setVisible(True)
+        self._add_dep_btn.setEnabled(False)
+        self._dep_name_input.setFocus()
+
+    def _on_remove_dependent(self) -> None:
+        """Remove the selected dependent and renumber."""
+        rows: set[int] = {
+            r.row()
+            for r in self._dependents_table.selectedIndexes()
+        }
+        if not rows:
+            QMessageBox.information(
+                self, "No Selection",
+                "Please select a dependent first.",
+            )
+            return
+
+        index: int = rows.pop()
+        deps: list[dict] = self._binding_manager.model.dependents
+        if index < 0 or index >= len(deps):
+            return
+
+        self._binding_manager.remove_dependent(index)
+        self._refresh_dependents_table()
+
+        # Adjust editing index after removal
+        if self._editing_dep_index is not None:
+            if self._editing_dep_index == index:
+                # The row being edited was removed
+                self._editing_dep_index = None
+                self._clear_dependent_form()
+                self._dep_form_widget.setVisible(False)
+                self._add_dep_btn.setEnabled(True)
+            elif self._editing_dep_index > index:
+                # The removed row was before the edited row
+                self._editing_dep_index -= 1
+
+    def _on_clear_all_dependents(self) -> None:
+        """Remove all dependents after confirmation."""
+        deps: list[dict] = self._binding_manager.model.dependents
+        if not deps:
+            return
+
+        reply: QMessageBox.StandardButton = QMessageBox.question(
+            self,
+            "Clear All Dependents",
+            "Are you sure you want to remove all dependents?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._binding_manager.clear_dependents()
+        self._refresh_dependents_table()
+        self._editing_dep_index = None
+        self._clear_dependent_form()
+        self._dep_form_widget.setVisible(False)
+        self._add_dep_btn.setEnabled(True)
+
+    def _on_reset_form(self) -> None:
+        """Clear input fields only, keep dependents unchanged."""
+        self._clear_dependent_form()
+        self._dep_name_input.setFocus()
+
     def _clear_dependent_form(self) -> None:
-        """Clear all fields in the add-dependent form."""
+        """Clear all fields in the dependent form."""
         self._dep_name_input.clear()
         self._dep_relation_input.clear()
         self._dep_dob_input.clear()
@@ -1137,6 +1275,7 @@ class CardGeneratorView(QWidget):
         self._photo_label.setText("No photo\nselected")
 
         # Clear dependents
+        self._editing_dep_index = None
         self._binding_manager.clear_dependents()
         self._refresh_dependents_table()
         self._clear_dependent_form()

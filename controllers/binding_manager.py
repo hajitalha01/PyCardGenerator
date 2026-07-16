@@ -187,6 +187,18 @@ class BindingManager(QObject):
         self.dependents_changed.emit()
         self.model_updated.emit()
 
+    def update_dependent(self, index: int, dependent: dict) -> None:
+        """Update a dependent record in-place and emit signals.
+
+        Args:
+            index: Zero-based index into the dependents list.
+            dependent: A dict with keys ``name``, ``relation``,
+                ``date_of_birth``, and ``cnic``.
+        """
+        self._model.update_dependent(index, dependent)
+        self.dependents_changed.emit()
+        self.model_updated.emit()
+
     def clear_dependents(self) -> None:
         """Remove all dependent records and emit signals."""
         self._model.clear_dependents()

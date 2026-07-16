@@ -145,6 +145,22 @@ class CardDataModel:
         if 0 <= index < len(self._dependents):
             del self._dependents[index]
 
+    def update_dependent(self, index: int, dependent: dict) -> None:
+        """Update a dependent record in-place.
+
+        Args:
+            index: Zero-based index into the dependents list.
+            dependent: A dict with keys ``name``, ``relation``,
+                ``date_of_birth``, and ``cnic``.
+        """
+        if 0 <= index < len(self._dependents):
+            self._dependents[index] = {
+                "name": dependent.get("name", ""),
+                "relation": dependent.get("relation", ""),
+                "date_of_birth": dependent.get("date_of_birth", ""),
+                "cnic": dependent.get("cnic", ""),
+            }
+
     def clear_dependents(self) -> None:
         """Remove all dependent records."""
         self._dependents.clear()

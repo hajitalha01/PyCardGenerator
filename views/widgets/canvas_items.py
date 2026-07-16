@@ -529,13 +529,7 @@ class TextFieldItem(BaseCanvasItem):
       linked to Card Generator form data via ``mapped_field``.
     - **Static** (``is_static=True``): Hardcoded text that never changes.
 
-    Dynamic fields show a light-blue background; static fields use
-    light-yellow.
     """
-
-    _DYNAMIC_BRUSH: QBrush = QBrush(QColor("#f0f8ff"))
-    _STATIC_BRUSH: QBrush = QBrush(QColor("#fffff0"))
-    _BORDER_PEN: QPen = QPen(QColor("#bbbbbb"), 1)
 
     def __init__(
         self,
@@ -729,17 +723,11 @@ class TextFieldItem(BaseCanvasItem):
         option: QStyle,
         widget: QWidget | None = None,
     ) -> None:
-        """Draw the field background, text, and selection handles."""
-        painter.setBrush(self._DYNAMIC_BRUSH if not self._is_static else self._STATIC_BRUSH)
-        painter.setPen(self._BORDER_PEN)
-        painter.drawRect(self._rect)
-
         if not self._editing:
             painter.setFont(self._font)
             painter.setPen(QColor(self._font_color))
             tr: QRectF = self._rect.adjusted(6, 4, -6, -4)
 
-            # Resolve alignment flag
             align: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             if self._alignment == "center":
                 align = Qt.AlignmentFlag.AlignCenter
@@ -747,17 +735,6 @@ class TextFieldItem(BaseCanvasItem):
                 align = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
 
             painter.drawText(tr, align, self._text)
-
-            # Show mapping indicator for dynamic fields
-            if self._is_static:
-                painter.setFont(QFont("Segoe UI", 7))
-                painter.setPen(QColor("#999999"))
-                painter.drawText(tr.adjusted(0, 0, 0, -14), Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight, "static")
-            elif self._mapped_field:
-                painter.setFont(QFont("Segoe UI", 7))
-                painter.setPen(QColor("#8888cc"))
-                field_label: str = self._mapped_field.replace("_", " ")
-                painter.drawText(tr.adjusted(0, 0, 0, -14), Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight, field_label)
 
         super().paint(painter, option, widget)
 

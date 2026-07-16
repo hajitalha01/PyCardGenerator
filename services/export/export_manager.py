@@ -95,6 +95,7 @@ class ExportManager:
             field_data=model.all_values,
             photo_path=model.photo_path or None,
             output_path=output_path,
+            dependents=model.dependents,
         )
 
     def export_back(self, output_path: str) -> str:
@@ -129,6 +130,7 @@ class ExportManager:
             field_data=model.all_values,
             photo_path=model.photo_path or None,
             output_path=output_path,
+            dependents=model.dependents,
         )
 
     def export_combined_pdf(self, output_path: str) -> str:
@@ -176,6 +178,7 @@ class ExportManager:
                 field_data=model.all_values,
                 photo_path=model.photo_path or None,
                 output_path=front_png,
+                dependents=model.dependents,
             )
             self._image_exporter.export_back(
                 template=template,
@@ -183,6 +186,7 @@ class ExportManager:
                 field_data=model.all_values,
                 photo_path=model.photo_path or None,
                 output_path=back_png,
+                dependents=model.dependents,
             )
 
             logger.info("Assembling combined PDF at %s", output_path)

@@ -7,15 +7,27 @@ type and manages the full compositing pipeline.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from PIL import Image
 
+from config.constants import (
+    CARD_HEIGHT_MM,
+    CARD_HEIGHT_PX,
+    CARD_WIDTH_MM,
+    CARD_WIDTH_PX,
+)
 from config.settings import GENERATED_CARDS_DIR
 from fields.field_type import FieldType
 from models.card import GeneratedCard
 from models.field import TemplateField
 from models.template import CardTemplate
+from services.renderers.dependents_renderer import (
+    DependentsRenderer,
+    is_dependents_table_field,
+    render_repeating_table,
+)
 from services.renderers.image_renderer import ImageRenderer
 from services.renderers.photo_renderer import PhotoRenderer
 from services.renderers.text_renderer import TextRenderer
@@ -102,6 +114,7 @@ class RenderService:
         field_data: dict[str, str],
         photo_path: str | None = None,
         output_path: str | None = None,
+        dependents: list[dict] | None = None,
     ) -> str:
         """Render the front side of a card and save it to disk.
 
@@ -116,6 +129,7 @@ class RenderService:
             photo_path: Optional path to the user's photo file.
             output_path: Desired output path.  If ``None`` a unique
                 filename is generated inside ``GENERATED_CARDS_DIR``.
+            dependents: Optional list of dependent records.
 
         Returns:
             The filesystem path to the rendered front image.
@@ -127,6 +141,7 @@ class RenderService:
             photo_path=photo_path,
             side="front",
             output_path=output_path,
+            dependents=dependents,
         )
 
     def render_back(
@@ -136,6 +151,7 @@ class RenderService:
         field_data: dict[str, str],
         photo_path: str | None = None,
         output_path: str | None = None,
+        dependents: list[dict] | None = None,
     ) -> str:
         """Render the back side of a card and save it to disk.
 
@@ -150,6 +166,7 @@ class RenderService:
             photo_path: Optional path to the user's photo file.
             output_path: Desired output path.  If ``None`` a unique
                 filename is generated inside ``GENERATED_CARDS_DIR``.
+            dependents: Optional list of dependent records.
 
         Returns:
             The filesystem path to the rendered back image.
@@ -161,6 +178,7 @@ class RenderService:
             photo_path=photo_path,
             side="back",
             output_path=output_path,
+            dependents=dependents,
         )
 
     # ------------------------------------------------------------------
@@ -175,6 +193,7 @@ class RenderService:
         photo_path: str | None,
         side: str,
         output_path: str | None,
+        dependents: list[dict] | None = None,
     ) -> str:
         """Run the full rendering pipeline for one card side.
 
@@ -196,6 +215,7 @@ class RenderService:
             photo_path: Optional photo file path.
             side: ``'front'`` or ``'back'``.
             output_path: Optional explicit output path.
+            dependents: Optional list of dependent records.
 
         Returns:
             The path to the rendered image.
@@ -207,12 +227,43 @@ class RenderService:
             side, self._dpi, *canvas_size,
         )
 
+        # ---- Normalise editor coordinates to canvas coordinates ----
+        # The Template Editor's card rect has a 60 px scene margin.
+        # All stored positions (bg + fields) are relative to card_pos
+        # (0,0 in the editor scene), but the canvas corresponds to
+        # the card RECT which is 60 px (= margin_mm in mm) from that
+        # origin.  We subtract this margin to get canvas-relative
+        # positions.
+        margin_mm_x: float = 60.0 * CARD_WIDTH_MM / CARD_WIDTH_PX    # ≈ 8.56
+        margin_mm_y: float = 60.0 * CARD_HEIGHT_MM / CARD_HEIGHT_PX  # ≈ 8.55
+
         # -- Step 1: Background --
         bg_path: str | None = (
             template.front_image if side == "front" else template.back_image
         )
+        bg_pos_x: float = max(
+            0.0,
+            (template.front_bg_pos_x if side == "front" else template.back_bg_pos_x)
+            - margin_mm_x,
+        )
+        bg_pos_y: float = max(
+            0.0,
+            (template.front_bg_pos_y if side == "front" else template.back_bg_pos_y)
+            - margin_mm_y,
+        )
+        bg_w_mm: float = (
+            template.front_bg_width if side == "front" else template.back_bg_width
+        )
+        bg_h_mm: float = (
+            template.front_bg_height if side == "front" else template.back_bg_height
+        )
         canvas: Image.Image = self._image_renderer.load_background(
-            bg_path, canvas_size
+            bg_path, canvas_size,
+            px_per_mm=px_per_mm,
+            bg_x_mm=bg_pos_x,
+            bg_y_mm=bg_pos_y,
+            bg_w_mm=bg_w_mm,
+            bg_h_mm=bg_h_mm,
         )
 
         # -- Filter and sort fields for this side --
@@ -223,15 +274,30 @@ class RenderService:
         ]
         side_fields.sort(key=lambda f: f.z_order)
 
-        # -- Steps 2-4: Render each field in order --
-        for field in side_fields:
+        # Separate repeating-group fields (dependents table) from regular fields
+        regular_fields: list[TemplateField] = []
+        dep_table_fields: list[TemplateField] = []
+        for f in side_fields:
+            if is_dependents_table_field(f):
+                dep_table_fields.append(f)
+            else:
+                regular_fields.append(f)
+
+        # -- Render regular fields (one copy at template position) --
+        for field in regular_fields:
             try:
+                norm_field: TemplateField = replace(
+                    field,
+                    x=max(0.0, field.x - margin_mm_x),
+                    y=max(0.0, field.y - margin_mm_y),
+                )
                 self._render_field(
                     canvas=canvas,
-                    field=field,
+                    field=norm_field,
                     field_data=field_data,
                     photo_path=photo_path,
                     px_per_mm=px_per_mm,
+                    dependents=dependents,
                 )
             except Exception:  # noqa: BLE001
                 logger.exception(
@@ -239,6 +305,23 @@ class RenderService:
                     field.field_name,
                     field.object_type,
                 )
+
+        # -- Render repeating dependents-table rows --
+        if dep_table_fields:
+            norm_dep_fields: list[TemplateField] = [
+                replace(
+                    f,
+                    x=max(0.0, f.x - margin_mm_x),
+                    y=max(0.0, f.y - margin_mm_y),
+                )
+                for f in dep_table_fields
+            ]
+            try:
+                render_repeating_table(
+                    canvas, norm_dep_fields, dependents, px_per_mm,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to render dependents table")
 
         # -- Step 5: Save --
         if output_path is None:
@@ -259,6 +342,7 @@ class RenderService:
         field_data: dict[str, str],
         photo_path: str | None,
         px_per_mm: float,
+        dependents: list[dict] | None = None,
     ) -> None:
         """Dispatch a single field to the appropriate renderer.
 
@@ -268,6 +352,7 @@ class RenderService:
             field_data: User-supplied values.
             photo_path: Optional user photo path.
             px_per_mm: Pixel-per-mm conversion factor.
+            dependents: Optional list of dependent records.
         """
         ftype: str = field.field_type
 
@@ -280,6 +365,14 @@ class RenderService:
         # Use mapped_field for data lookup, fall back to field_name.
         if ftype in (FieldType.TEXT, FieldType.DATE):
             lookup_key: str = field.mapped_field or field.field_name
+
+            # Dependents table: render as a proper table grid
+            if lookup_key == "dependence":
+                DependentsRenderer.render(
+                    canvas, field, dependents or [], px_per_mm,
+                )
+                return
+
             user_value: str = field_data.get(lookup_key, "")
             TextRenderer.render_text(canvas, field, user_value, px_per_mm)
 

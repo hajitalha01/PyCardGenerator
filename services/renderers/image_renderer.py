@@ -29,26 +29,69 @@ class ImageRenderer:
 
     @staticmethod
     def load_background(
-        image_path: str | None, size: tuple[int, int]
+        image_path: str | None,
+        size: tuple[int, int],
+        px_per_mm: float | None = None,
+        bg_x_mm: float = 0.0,
+        bg_y_mm: float = 0.0,
+        bg_w_mm: float | None = None,
+        bg_h_mm: float | None = None,
     ) -> Image.Image:
-        """Load a background image or create a blank white canvas.
+        """Load a background image onto a canvas.
+
+        When *px_per_mm* and *bg_w_mm*/*bg_h_mm* are provided the
+        background is placed at the correct millimetre position on a
+        white canvas — matching the editor canvas behaviour exactly.
+        Otherwise the image is stretched to fill the entire canvas
+        (legacy full-bleed behaviour).
 
         Args:
             image_path: Path to the background image, or ``None``
                 to create a white canvas.
             size: Desired ``(width, height)`` in pixels.
+            px_per_mm: Pixels-per-millimetre factor.  When provided
+                together with *bg_w_mm*/*bg_h_mm* the image is
+                positioned at ``(bg_x_mm, bg_y_mm)`` in mm rather
+                than filling the full canvas.
+            bg_x_mm: Background X offset from card left edge (mm).
+            bg_y_mm: Background Y offset from card top edge (mm).
+            bg_w_mm: Background render width (mm).  ``None`` =
+                full-canvas width.
+            bg_h_mm: Background render height (mm).  ``None`` =
+                full-canvas height.
 
         Returns:
             An RGBA ``Image`` filled with the background content.
         """
+        canvas: Image.Image = Image.new("RGBA", size, (255, 255, 255, 255))
+
         if image_path and Path(image_path).is_file():
             bg: Image.Image = Image.open(image_path).convert("RGBA")
-            bg = bg.resize(size, Image.Resampling.LANCZOS)
-            logger.debug("Loaded background image: %s", image_path)
+
+            if px_per_mm is not None and bg_w_mm is not None and bg_h_mm is not None:
+                # Position-aware placement — matches editor canvas
+                bg_w_px: int = round(bg_w_mm * px_per_mm)
+                bg_h_px: int = round(bg_h_mm * px_per_mm)
+                bg_x_px: int = round(bg_x_mm * px_per_mm)
+                bg_y_px: int = round(bg_y_mm * px_per_mm)
+                resized: Image.Image = bg.resize(
+                    (max(bg_w_px, 1), max(bg_h_px, 1)),
+                    Image.Resampling.LANCZOS,
+                )
+                canvas.paste(resized, (bg_x_px, bg_y_px), resized)
+                logger.debug(
+                    "Loaded bg '%s' at (%d, %d) size %d x %d",
+                    image_path, bg_x_px, bg_y_px, bg_w_px, bg_h_px,
+                )
+            else:
+                # Full-bleed (legacy behaviour)
+                resized = bg.resize(size, Image.Resampling.LANCZOS)
+                canvas.paste(resized, (0, 0), resized)
+                logger.debug("Loaded full-bleed background: %s", image_path)
         else:
-            bg = Image.new("RGBA", size, (255, 255, 255, 255))
             logger.debug("Created blank white canvas (%d x %d)", *size)
-        return bg
+
+        return canvas
 
     # ------------------------------------------------------------------
     # Image compositing

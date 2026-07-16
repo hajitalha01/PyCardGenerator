@@ -171,6 +171,25 @@ def _apply_stylesheet(app: QApplication) -> None:
         color: #bbbbbb;
         border-color: #e0e0e0;
     }
+    #sideTabBtn {
+        background-color: #f0f0f0;
+        color: #666666;
+        border: 1px solid #cccccc;
+        border-radius: 6px;
+        padding: 6px 18px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+    #sideTabBtn:hover {
+        background-color: #e4e4e4;
+        border-color: #aaaaaa;
+    }
+    #sideTabBtn:checked {
+        background-color: #1a73e8;
+        color: #ffffff;
+        border-color: #1a73e8;
+        font-weight: 600;
+    }
 
     /* ---- Preview controls ---- */
     #previewTitle {

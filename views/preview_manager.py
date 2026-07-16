@@ -87,6 +87,7 @@ class PreviewManager(QObject):
         manager.field_changed.connect(self._on_field_changed)
         manager.photo_changed.connect(self._on_photo_changed)
         manager.template_changed.connect(self._on_template_changed)
+        manager.dependents_changed.connect(self._on_dependents_changed)
         manager.form_reset.connect(self._on_form_reset)
 
     # ------------------------------------------------------------------
@@ -141,6 +142,10 @@ class PreviewManager(QObject):
         self._front_canvas.set_placeholder("No Front Template Selected")
         self._back_canvas.set_placeholder("No Back Template Selected")
 
+    def _on_dependents_changed(self) -> None:
+        """Handle a dependents list change — schedule a re-render."""
+        self._schedule_update()
+
     def _on_form_reset(self) -> None:
         """Handle a form reset / clear event."""
         self._template = None
@@ -177,6 +182,7 @@ class PreviewManager(QObject):
         model = self._binding_manager.model
         field_data: dict[str, str] = model.all_values
         photo_path: str | None = model.photo_path or None
+        dependents: list[dict] = model.dependents
 
         try:
             # --- Front side ---
@@ -186,6 +192,7 @@ class PreviewManager(QObject):
                 field_data=field_data,
                 photo_path=photo_path,
                 cache=self._cache,
+                dependents=dependents,
             )
             self._front_canvas.set_pixmap(
                 PreviewRenderer.image_to_qpixmap(front_img)
@@ -198,6 +205,7 @@ class PreviewManager(QObject):
                 field_data=field_data,
                 photo_path=photo_path,
                 cache=self._cache,
+                dependents=dependents,
             )
             self._back_canvas.set_pixmap(
                 PreviewRenderer.image_to_qpixmap(back_img)

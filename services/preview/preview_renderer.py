@@ -10,14 +10,26 @@ that the full-resolution RenderService uses.
 from __future__ import annotations
 
 import io
+from dataclasses import replace
 
 from PIL import Image
 from PySide6.QtCore import QByteArray
 from PySide6.QtGui import QPixmap
 
+from config.constants import (
+    CARD_HEIGHT_MM,
+    CARD_HEIGHT_PX,
+    CARD_WIDTH_MM,
+    CARD_WIDTH_PX,
+)
 from fields.field_type import FieldType
 from models.field import TemplateField
 from models.template import CardTemplate
+from services.renderers.dependents_renderer import (
+    DependentsRenderer,
+    is_dependents_table_field,
+    render_repeating_table,
+)
 from services.renderers.image_renderer import ImageRenderer
 from services.renderers.photo_renderer import PhotoRenderer
 from services.renderers.text_renderer import TextRenderer
@@ -98,6 +110,7 @@ class PreviewRenderer:
         field_data: dict[str, str],
         photo_path: str | None = None,
         cache: PreviewCache | None = None,
+        dependents: list[dict] | None = None,
     ) -> Image.Image:
         """Render the front side of a card as an in-memory image.
 
@@ -107,6 +120,7 @@ class PreviewRenderer:
             field_data: ``{field_name: user_value}`` dictionary.
             photo_path: Optional path to the user's photo file.
             cache: Optional ``PreviewCache`` to re-use rendered backgrounds.
+            dependents: Optional list of dependent records.
 
         Returns:
             An RGBA ``Image.Image`` of the rendered front side.
@@ -118,6 +132,7 @@ class PreviewRenderer:
             photo_path=photo_path,
             side="front",
             cache=cache,
+            dependents=dependents,
         )
 
     def render_back(
@@ -127,6 +142,7 @@ class PreviewRenderer:
         field_data: dict[str, str],
         photo_path: str | None = None,
         cache: PreviewCache | None = None,
+        dependents: list[dict] | None = None,
     ) -> Image.Image:
         """Render the back side of a card as an in-memory image.
 
@@ -136,6 +152,7 @@ class PreviewRenderer:
             field_data: ``{field_name: user_value}`` dictionary.
             photo_path: Optional path to the user's photo file.
             cache: Optional ``PreviewCache`` to re-use rendered backgrounds.
+            dependents: Optional list of dependent records.
 
         Returns:
             An RGBA ``Image.Image`` of the rendered back side.
@@ -147,6 +164,7 @@ class PreviewRenderer:
             photo_path=photo_path,
             side="back",
             cache=cache,
+            dependents=dependents,
         )
 
     # ------------------------------------------------------------------
@@ -186,6 +204,7 @@ class PreviewRenderer:
         photo_path: str | None,
         side: str,
         cache: PreviewCache | None,
+        dependents: list[dict] | None = None,
     ) -> Image.Image:
         """Run the rendering pipeline for one card side.
 
@@ -204,6 +223,7 @@ class PreviewRenderer:
             photo_path: Optional photo file path.
             side: ``'front'`` or ``'back'``.
             cache: Optional cache for background images.
+            dependents: Optional list of dependent records.
 
         Returns:
             The rendered RGBA image.
@@ -216,9 +236,35 @@ class PreviewRenderer:
             side, self._dpi, *canvas_size,
         )
 
+        # ---- Normalise editor coordinates to canvas coordinates ----
+        # The Template Editor's card rect has a 60 px scene margin.
+        # All stored positions (bg + fields) are relative to card_pos
+        # (0,0 in the editor scene), but the canvas corresponds to
+        # the card RECT which is 60 px (= margin_mm in mm) from that
+        # origin.  We subtract this margin to get canvas-relative
+        # positions.  See debug_rca_report.py for the full analysis.
+        margin_mm_x: float = 60.0 * CARD_WIDTH_MM / CARD_WIDTH_PX    # ≈ 8.56
+        margin_mm_y: float = 60.0 * CARD_HEIGHT_MM / CARD_HEIGHT_PX  # ≈ 8.55
+
         # -- Step 1: Background (with caching) --
         bg_path: str | None = (
             template.front_image if side == "front" else template.back_image
+        )
+        bg_pos_x: float = max(
+            0.0,
+            (template.front_bg_pos_x if side == "front" else template.back_bg_pos_x)
+            - margin_mm_x,
+        )
+        bg_pos_y: float = max(
+            0.0,
+            (template.front_bg_pos_y if side == "front" else template.back_bg_pos_y)
+            - margin_mm_y,
+        )
+        bg_w_mm: float = (
+            template.front_bg_width if side == "front" else template.back_bg_width
+        )
+        bg_h_mm: float = (
+            template.front_bg_height if side == "front" else template.back_bg_height
         )
 
         cached: Image.Image | None = None
@@ -229,7 +275,14 @@ class PreviewRenderer:
             canvas: Image.Image = cached.copy()
             logger.debug("Re-using cached background for %s side", side)
         else:
-            canvas = self._image_renderer.load_background(bg_path, canvas_size)
+            canvas = self._image_renderer.load_background(
+                bg_path, canvas_size,
+                px_per_mm=px_per_mm,
+                bg_x_mm=bg_pos_x,
+                bg_y_mm=bg_pos_y,
+                bg_w_mm=bg_w_mm,
+                bg_h_mm=bg_h_mm,
+            )
             if cache is not None and template_id is not None:
                 cache.set_background(template_id, side, canvas)
                 logger.debug("Cached background for %s side", side)
@@ -242,15 +295,30 @@ class PreviewRenderer:
         ]
         side_fields.sort(key=lambda f: f.z_order)
 
-        # -- Steps 2-4: Render each field in order --
-        for field in side_fields:
+        # Separate repeating-group fields (dependents table) from regular fields
+        regular_fields: list[TemplateField] = []
+        dep_table_fields: list[TemplateField] = []
+        for f in side_fields:
+            if is_dependents_table_field(f):
+                dep_table_fields.append(f)
+            else:
+                regular_fields.append(f)
+
+        # -- Render regular fields (one copy at template position) --
+        for field in regular_fields:
             try:
+                norm_field: TemplateField = replace(
+                    field,
+                    x=max(0.0, field.x - margin_mm_x),
+                    y=max(0.0, field.y - margin_mm_y),
+                )
                 self._render_field(
                     canvas=canvas,
-                    field=field,
+                    field=norm_field,
                     field_data=field_data,
                     photo_path=photo_path,
                     px_per_mm=px_per_mm,
+                    dependents=dependents,
                 )
             except Exception:  # noqa: BLE001
                 logger.exception(
@@ -258,6 +326,23 @@ class PreviewRenderer:
                     field.field_name,
                     field.object_type,
                 )
+
+        # -- Render repeating dependents-table rows --
+        if dep_table_fields:
+            norm_dep_fields: list[TemplateField] = [
+                replace(
+                    f,
+                    x=max(0.0, f.x - margin_mm_x),
+                    y=max(0.0, f.y - margin_mm_y),
+                )
+                for f in dep_table_fields
+            ]
+            try:
+                render_repeating_table(
+                    canvas, norm_dep_fields, dependents, px_per_mm,
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Preview failed to render dependents table")
 
         return canvas
 
@@ -268,6 +353,7 @@ class PreviewRenderer:
         field_data: dict[str, str],
         photo_path: str | None,
         px_per_mm: float,
+        dependents: list[dict] | None = None,
     ) -> None:
         """Dispatch a single field to the appropriate renderer.
 
@@ -277,6 +363,7 @@ class PreviewRenderer:
             field_data: User-supplied values.
             photo_path: Optional user photo path.
             px_per_mm: Pixel-per-mm conversion factor.
+            dependents: Optional list of dependent records.
         """
         ftype: str = field.field_type
 
@@ -289,6 +376,14 @@ class PreviewRenderer:
         # Use mapped_field for data lookup, fall back to field_name.
         if ftype in (FieldType.TEXT, FieldType.DATE):
             lookup_key: str = field.mapped_field or field.field_name
+
+            # Dependents table: render as a proper table grid
+            if lookup_key == "dependence":
+                DependentsRenderer.render(
+                    canvas, field, dependents or [], px_per_mm,
+                )
+                return
+
             user_value: str = field_data.get(lookup_key, "")
             TextRenderer.render_text(canvas, field, user_value, px_per_mm)
 

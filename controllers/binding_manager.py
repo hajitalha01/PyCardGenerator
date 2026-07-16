@@ -58,6 +58,7 @@ class BindingManager(QObject):
     field_changed = Signal(str, str)
     photo_changed = Signal(str)
     template_changed = Signal(int)
+    dependents_changed = Signal()
     form_reset = Signal()
     model_updated = Signal()
     validation_error = Signal(str, str)
@@ -118,14 +119,31 @@ class BindingManager(QObject):
     # Public API — write
     # ------------------------------------------------------------------
 
+    # Field name aliases for backward compatibility.
+    # When a value is set for the new key, the old key is also updated.
+    _FIELD_ALIASES: dict[str, str] = {
+        "employee_designation": "designation",
+        "dependents": "dependence",
+    }
+
     def set_field(self, field_name: str, value: str) -> None:
         """Update a single field in the model and emit signals.
+
+        Backward-compatibility aliases are also populated so that
+        existing templates referencing the old field names continue
+        to receive the correct values.
 
         Args:
             field_name: The field to update (e.g. ``"name"``).
             value: The new string value.
         """
         self._model.set_value(field_name, value)
+
+        # Populate backward-compat alias
+        alias: str | None = self._FIELD_ALIASES.get(field_name)
+        if alias is not None:
+            self._model.set_value(alias, value)
+
         self.field_changed.emit(field_name, value)
         self.model_updated.emit()
 
@@ -142,6 +160,37 @@ class BindingManager(QObject):
         """
         self._model.photo_path = path
         self.photo_changed.emit(path)
+        self.model_updated.emit()
+
+    # ------------------------------------------------------------------
+    # Dependents
+    # ------------------------------------------------------------------
+
+    def add_dependent(self, dependent: dict) -> None:
+        """Add a dependent record and emit signals.
+
+        Args:
+            dependent: A dict with keys ``name``, ``relation``,
+                ``date_of_birth``, and ``cnic``.
+        """
+        self._model.add_dependent(dependent)
+        self.dependents_changed.emit()
+        self.model_updated.emit()
+
+    def remove_dependent(self, index: int) -> None:
+        """Remove a dependent record at the given index.
+
+        Args:
+            index: Zero-based index into the dependents list.
+        """
+        self._model.remove_dependent(index)
+        self.dependents_changed.emit()
+        self.model_updated.emit()
+
+    def clear_dependents(self) -> None:
+        """Remove all dependent records and emit signals."""
+        self._model.clear_dependents()
+        self.dependents_changed.emit()
         self.model_updated.emit()
 
     def set_template(self, template_id: int) -> None:
@@ -195,7 +244,7 @@ class BindingManager(QObject):
         logger.debug("Form reset to snapshot.")
 
     def clear(self) -> None:
-        """Clear all values, photo, and template selection.
+        """Clear all values, photo, template selection, and dependents.
 
         The ``form_reset`` signal is emitted.
         """

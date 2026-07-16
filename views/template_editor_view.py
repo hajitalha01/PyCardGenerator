@@ -9,7 +9,7 @@ inspector, and an editor-specific status bar.
 import logging
 import traceback
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QRectF, Signal
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -50,12 +50,24 @@ logger = setup_logger(__name__)
 # Mapping from display name → (mapped_field, field_type) for dynamic fields.
 _DYNAMIC_FIELD_DEFS: list[tuple[str, str, str]] = [
     ("Employee Name", "employee_name", "text"),
-    ("Designation", "designation", "text"),
+    ("Employee Designation", "employee_designation", "text"),
+    ("Employee No", "employee_no", "text"),
+    ("Date of Birth", "date_of_birth", "date"),
+    ("CNIC", "cnic", "text"),
     ("Employee Category", "employee_category", "text"),
     ("Blood Group", "blood_group", "text"),
     ("Location", "location", "text"),
-    ("Dependence", "dependence", "text"),
+    ("Dependents", "dependents", "text"),
     ("Employee Photo", "employee_photo", "photo"),
+]
+
+_BACK_DYNAMIC_FIELD_DEFS: list[tuple[str, str, str]] = [
+    ("Sr No", "sr_no", "text"),
+    ("Name", "dependent_name", "text"),
+    ("Relation", "relation", "text"),
+    ("Date of Birth", "dependent_date_of_birth", "date"),
+    ("CNIC", "dependent_cnic", "text"),
+    ("Dependents Table", "__dependents_table__", "text"),
 ]
 
 
@@ -404,17 +416,10 @@ class TemplateEditorView(QWidget):
         # --- Dynamic Fields section ---
         layout.addWidget(self._make_section_title("Dynamic Fields"))
 
-        self._dynamic_buttons: dict[str, QPushButton] = {}
-        for display_name, mapped_field, field_type in _DYNAMIC_FIELD_DEFS:
-            btn: QPushButton = QPushButton(display_name)
-            btn.setObjectName("fieldToolboxBtn")
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(
-                lambda checked=False, d=display_name, m=mapped_field, ft=field_type:
-                    self._on_dynamic_field(d, m, ft)
-            )
-            layout.addWidget(btn)
-            self._dynamic_buttons[display_name] = btn
+        self._dynamic_fields_layout = QVBoxLayout()
+        layout.addLayout(self._dynamic_fields_layout)
+
+        self._populate_dynamic_fields("front")
 
         layout.addSpacing(12)
 
@@ -896,6 +901,9 @@ class TemplateEditorView(QWidget):
             self._canvas.load_fields(fields)
             print("[TRACE] load_fields completed")
 
+            # Ensure dynamic fields panel shows Front fields
+            self._refresh_dynamic_fields()
+
             logger.info(
                 "Loaded template id=%d '%s' into editor",
                 template_id, template.template_name
@@ -1065,10 +1073,51 @@ class TemplateEditorView(QWidget):
             mapped_field: Semantic field name (e.g. ``"employee_name"``).
             field_type: ``"text"`` or ``"photo"``.
         """
+        if mapped_field == "__dependents_table__":
+            self._create_dependents_table()
+            return
         if field_type == "photo":
             self._canvas.add_dynamic_photo_field(mapped_field)
         else:
             self._canvas.add_dynamic_text_field(display_name, mapped_field)
+
+    def _create_dependents_table(self) -> None:
+        """Auto-create 5 pre-positioned fields forming one row template.
+
+        The renderer repeats this row for each dependent, automatically
+        calculating Y positions below the template row.
+        """
+        from views.widgets.canvas_items import TextFieldItem  # noqa: PLC0415
+
+        col_defs: list[tuple[str, str, int]] = [
+            ("sr_no",                "Sr No",    50),
+            ("dependent_name",       "Name",    170),
+            ("dependent_relation",   "Relation", 120),
+            ("dependent_date_of_birth", "DOB", 120),
+            ("dependent_cnic",       "CNIC",    130),
+        ]
+
+        canvas = self._canvas
+        card_x: float = canvas._card_item.pos().x()
+        card_y: float = canvas._card_item.pos().y()
+        row_y: float = card_y + canvas._card_h * 0.35
+        row_h: float = 30.0
+
+        cx: float = card_x + 5.0
+        for mapped_field, display_name, col_w in col_defs:
+            item = TextFieldItem(
+                cx, row_y,
+                is_static=False,
+                mapped_field=mapped_field,
+                static_text="",
+                font_family="Arial",
+                font_size=10,
+                font_color="#000000",
+            )
+            item._rect = QRectF(0, 0, float(col_w), row_h)
+            item.setZValue(0)
+            canvas._configure_item(item)
+            cx += col_w + 3.0
 
     def _on_static_element(self, action: str) -> None:
         """Add a static element to the canvas.
@@ -1096,18 +1145,61 @@ class TemplateEditorView(QWidget):
                 self._canvas.add_image_item(path)
 
     # ------------------------------------------------------------------
+    # Dynamic fields helpers
+    # ------------------------------------------------------------------
+
+    def _clear_dynamic_fields_layout(self) -> None:
+        """Remove all widget items from the dynamic fields layout."""
+        if not hasattr(self, '_dynamic_fields_layout'):
+            return
+        while self._dynamic_fields_layout.count():
+            item = self._dynamic_fields_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _populate_dynamic_fields(self, side: str) -> None:
+        """Populate the dynamic fields toolbox for the given card side.
+
+        Args:
+            side: ``"front"`` or ``"back"``.
+        """
+        self._clear_dynamic_fields_layout()
+
+        field_defs = (
+            _DYNAMIC_FIELD_DEFS if side == "front" else _BACK_DYNAMIC_FIELD_DEFS
+        )
+
+        self._dynamic_buttons: dict[str, QPushButton] = {}
+        for display_name, mapped_field, field_type in field_defs:
+            btn: QPushButton = QPushButton(display_name)
+            btn.setObjectName("fieldToolboxBtn")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(
+                lambda checked=False, d=display_name, m=mapped_field, ft=field_type:
+                    self._on_dynamic_field(d, m, ft)
+            )
+            self._dynamic_fields_layout.addWidget(btn)
+            self._dynamic_buttons[display_name] = btn
+
+    def _refresh_dynamic_fields(self) -> None:
+        """Refresh the dynamic fields panel to match the current card side."""
+        self._populate_dynamic_fields(self._current_page_side)
+
+    # ------------------------------------------------------------------
     # Card side switching
     # ------------------------------------------------------------------
 
     def _on_card_side_changed(self, index: int) -> None:
         """Switch between front and back card sides."""
-        if self._current_template_id is None:
-            return
-
         old_side: str = self._current_page_side
         new_side: str = "front" if index == 0 else "back"
 
         if old_side == new_side:
+            return
+
+        if self._current_template_id is None:
+            self._current_page_side = new_side
+            self._refresh_dynamic_fields()
             return
 
         # Save current side's fields and bg info before switching
@@ -1145,6 +1237,8 @@ class TemplateEditorView(QWidget):
         self._canvas.load_fields(fields)
 
         self._current_page_side = new_side
+
+        self._refresh_dynamic_fields()
 
     # ------------------------------------------------------------------
     # Selection display

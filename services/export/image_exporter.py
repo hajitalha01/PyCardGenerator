@@ -40,6 +40,7 @@ class ImageExporter:
         field_data: dict[str, str],
         photo_path: str | None,
         output_path: str,
+        dependents: list[dict] | None = None,
     ) -> str:
         """Render and save the front card side.
 
@@ -50,6 +51,7 @@ class ImageExporter:
             photo_path: Path to the user's photo, or ``None``.
             output_path: Desired output file path (extension
                 determines format).
+            dependents: Optional list of dependent records.
 
         Returns:
             The ``output_path`` the image was saved to.
@@ -60,6 +62,7 @@ class ImageExporter:
             field_data=field_data,
             photo_path=photo_path,
             output_path=output_path,
+            dependents=dependents,
         )
 
     def export_back(
@@ -69,6 +72,7 @@ class ImageExporter:
         field_data: dict[str, str],
         photo_path: str | None,
         output_path: str,
+        dependents: list[dict] | None = None,
     ) -> str:
         """Render and save the back card side.
 
@@ -79,6 +83,7 @@ class ImageExporter:
             photo_path: Path to the user's photo, or ``None``.
             output_path: Desired output file path (extension
                 determines format).
+            dependents: Optional list of dependent records.
 
         Returns:
             The ``output_path`` the image was saved to.
@@ -89,4 +94,5 @@ class ImageExporter:
             field_data=field_data,
             photo_path=photo_path,
             output_path=output_path,
+            dependents=dependents,
         )

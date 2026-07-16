@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from models.dependent import Dependent
 from models.field import TemplateField
 
 
@@ -78,6 +79,7 @@ class CardDataModel:
         self._photo_path: str = ""
         self._fields: dict[str, FieldValue] = {}
         self._clean_snapshot: dict[str, str] = {}
+        self._dependents: list[dict] = []
 
     # ------------------------------------------------------------------
     # Properties
@@ -111,26 +113,94 @@ class CardDataModel:
         self._photo_path = value
 
     # ------------------------------------------------------------------
+    # Dependents management
+    # ------------------------------------------------------------------
+
+    @property
+    def dependents(self) -> list[dict]:
+        """Return a copy of the current dependents list."""
+        return list(self._dependents)
+
+    def add_dependent(self, dependent: dict) -> None:
+        """Add a dependent record.
+
+        Args:
+            dependent: A dict with keys ``name``, ``relation``,
+                ``date_of_birth``, and ``cnic``.
+        """
+        entry: dict = {
+            "name": dependent.get("name", ""),
+            "relation": dependent.get("relation", ""),
+            "date_of_birth": dependent.get("date_of_birth", ""),
+            "cnic": dependent.get("cnic", ""),
+        }
+        self._dependents.append(entry)
+
+    def remove_dependent(self, index: int) -> None:
+        """Remove a dependent at the given index.
+
+        Args:
+            index: Zero-based index into the dependents list.
+        """
+        if 0 <= index < len(self._dependents):
+            del self._dependents[index]
+
+    def clear_dependents(self) -> None:
+        """Remove all dependent records."""
+        self._dependents.clear()
+
+    def format_dependents_table(self) -> str:
+        """Format the dependents list as a table string for rendering.
+
+        Returns:
+            A multi-line string with a header row and one row per
+            dependent, suitable for rendering in a text field.
+        """
+        if not self._dependents:
+            return ""
+        lines: list[str] = []
+        header: str = f"{'Sr':<4} {'Name':<22} {'Relation':<15} {'DOB':<14} {'CNIC':<15}"
+        lines.append(header)
+        lines.append("-" * len(header))
+        for i, dep in enumerate(self._dependents, 1):
+            line: str = (
+                f"{i:<4} "
+                f"{dep.get('name', ''):<22} "
+                f"{dep.get('relation', ''):<15} "
+                f"{dep.get('date_of_birth', ''):<14} "
+                f"{dep.get('cnic', ''):<15}"
+            )
+            lines.append(line)
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
     # Field management
     # ------------------------------------------------------------------
 
     def load_template_fields(self, fields: list[TemplateField]) -> None:
         """Populate field metadata from a template's field definitions.
 
+        Preserves any existing user-entered values so that filling the
+        form *before* selecting a template does not lose data.
+
         Each ``TemplateField`` becomes a ``FieldValue`` with its
-        ``default_value`` pre-filled as the starting value.
+        ``default_value`` as fallback when no prior value exists.
 
         Args:
             fields: Every field belonging to the current template.
         """
+        existing_values: dict[str, str] = {
+            name: fv.value for name, fv in self._fields.items()
+        }
         self._fields.clear()
         for f in fields:
+            prev: str = existing_values.get(f.field_name, f.default_value)
             self._fields[f.field_name] = FieldValue(
                 field_name=f.field_name,
                 field_type=f.field_type,
                 default_value=f.default_value,
                 required=f.required,
-                value=f.default_value,
+                value=prev,
             )
         self._take_snapshot()
 
@@ -217,7 +287,7 @@ class CardDataModel:
             field.error_message = ""
 
     def clear(self) -> None:
-        """Clear all values, photo, and template selection."""
+        """Clear all values, photo, template selection, and dependents."""
         for field in self._fields.values():
             field.value = ""
             field.is_dirty = False
@@ -226,6 +296,7 @@ class CardDataModel:
         self._photo_path = ""
         self._template_id = 0
         self._template_name = ""
+        self._dependents.clear()
 
     # ------------------------------------------------------------------
     # Validation
@@ -278,6 +349,19 @@ class CardDataModel:
         """Return a ``{field_name: value}`` dict of every current value.
 
         The returned dict is the primary data source for the rendering
-        and export pipelines.
+        and export pipelines.  The ``dependents`` key carries the
+        front-form text value; the ``dependence`` key is populated
+        from the structured dependents table (back form) if any
+        dependents exist, falling back to the front-form text.
         """
-        return {name: f.value for name, f in self._fields.items()}
+        values: dict[str, str] = {
+            name: f.value for name, f in self._fields.items()
+        }
+        # Back-form structured dependents → "dependence" key
+        formatted: str = self.format_dependents_table()
+        if formatted:
+            values["dependence"] = formatted
+        elif "dependents" in values:
+            # Fall back to front-form text for backward compatibility
+            values["dependence"] = values["dependents"]
+        return values

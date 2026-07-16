@@ -21,6 +21,7 @@ class GeneratedCard:
         blood_group: Blood group.
         location: Location.
         dependence: Dependence.
+        dependents: List of dependent dicts associated with this card.
         front_output: Path to the generated front card image.
         back_output: Path to the generated back card image.
         combined_pdf: Path to the combined front + back PDF.
@@ -37,6 +38,7 @@ class GeneratedCard:
     blood_group: str | None = None
     location: str | None = None
     dependence: str | None = None
+    dependents: list[dict] | None = None
     front_output: str | None = None
     back_output: str | None = None
     combined_pdf: str | None = None

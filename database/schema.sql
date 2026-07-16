@@ -47,6 +47,17 @@ CREATE TABLE IF NOT EXISTS template_fields (
     FOREIGN KEY (template_id) REFERENCES templates(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS dependents (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    card_id       INTEGER,
+    name          TEXT    NOT NULL,
+    relation      TEXT    NOT NULL DEFAULT '',
+    date_of_birth TEXT    NOT NULL DEFAULT '',
+    cnic          TEXT    NOT NULL DEFAULT '',
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS cards (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     template_id       INTEGER NOT NULL,

@@ -14,6 +14,7 @@ from PySide6.QtGui import (
     QFont,
     QPainter,
     QPixmap,
+    QResizeEvent,
     QWheelEvent,
 )
 from PySide6.QtWidgets import (
@@ -99,6 +100,14 @@ class PreviewCanvas(QWidget):
     # ------------------------------------------------------------------
     # Public access to inner view (for advanced interaction)
     # ------------------------------------------------------------------
+
+    def current_pixmap(self) -> QPixmap:
+        """Return the currently displayed pixmap.
+
+        Returns:
+            The current ``QPixmap`` (may be null).
+        """
+        return self._view.current_pixmap()
 
     @property
     def graphics_view(self) -> QGraphicsView:
@@ -202,9 +211,23 @@ class _CardGraphicsView(QGraphicsView):
             )
             self._zoom = 1.0
 
+    def current_pixmap(self) -> QPixmap:
+        """Return the currently displayed pixmap.
+
+        Returns:
+            The current ``QPixmap`` (may be null).
+        """
+        return self._pixmap_item.pixmap()
+
     # ------------------------------------------------------------------
     # Event overrides
     # ------------------------------------------------------------------
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        """Re-fit the card image when the viewport is resized."""
+        super().resizeEvent(event)
+        if not self._pixmap_item.pixmap().isNull():
+            self.fit_in_view()
 
     def wheelEvent(self, event: QWheelEvent) -> None:  # noqa: N802
         """Zoom with Ctrl+Scroll; otherwise scroll normally."""

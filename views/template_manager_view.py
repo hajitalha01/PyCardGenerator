@@ -75,7 +75,7 @@ class TemplateManagerView(QWidget):
     def _setup_ui(self) -> None:
         """Build the complete page layout."""
         root: QVBoxLayout = QVBoxLayout(self)
-        root.setContentsMargins(40, 40, 40, 40)
+        root.setContentsMargins(24, 24, 24, 24)
         root.setSpacing(16)
 
         title: QLabel = QLabel("Template Manager")

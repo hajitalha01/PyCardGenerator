@@ -1,6 +1,6 @@
 """Main application window.
 
-Provides the primary window frame: a top header bar, a fixed
+Provides the primary window frame: a top header bar, a collapsible
 left sidebar for navigation, a QStackedWidget for page content,
 and a status bar.  The sidebar uses a QButtonGroup so that only
 one nav item is active at a time.
@@ -19,7 +19,7 @@ Geometry and position are persisted via QSettings so that the
 window reopens at the same size and location.
 """
 
-from PySide6.QtCore import Qt, QDate, QSettings, Signal
+from PySide6.QtCore import Qt, QDate, QEasingCurve, QEvent, QSettings, QVariantAnimation, Signal
 from PySide6.QtGui import QIcon, QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 from config.constants import (
     APP_NAME,
     APP_VERSION,
+    SIDEBAR_COLLAPSED_WIDTH,
     SIDEBAR_WIDTH,
     WINDOW_MIN_HEIGHT,
     WINDOW_MIN_WIDTH,
@@ -51,6 +52,23 @@ from views.dashboard_view import DashboardView
 from views.settings_view import SettingsView
 from views.template_editor_view import TemplateEditorView
 from views.template_manager_view import TemplateManagerView
+
+
+class _CollapsibleSidebar(QWidget):
+    """Sidebar widget that collapses to icons-only on mouse leave."""
+
+    def __init__(self, main_window: QMainWindow, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._mw = main_window
+        self.setObjectName("sidebar")
+
+    def enterEvent(self, event: QEvent) -> None:
+        self._mw._expand_sidebar()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        self._mw._collapse_sidebar()
+        super().leaveEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -110,7 +128,8 @@ class MainWindow(QMainWindow):
         body_layout.setContentsMargins(0, 0, 0, 0)
         body_layout.setSpacing(0)
 
-        body_layout.addWidget(self._build_sidebar())
+        self._sidebar = self._build_sidebar()
+        body_layout.addWidget(self._sidebar)
         body_layout.addWidget(self._stack, stretch=1)
 
         root_layout.addWidget(body, stretch=1)
@@ -148,51 +167,101 @@ class MainWindow(QMainWindow):
         return header
 
     def _build_sidebar(self) -> QWidget:
-        """Construct the navigation sidebar with icon + text buttons.
-
-        Buttons are added to a QButtonGroup for mutual exclusion.
+        """Construct the collapsible navigation sidebar.
 
         Returns:
-            A sidebar widget containing the nav button group.
+            A sidebar widget that collapses to icons-only and
+            expands smoothly on mouse hover.
         """
-        sidebar: QWidget = QWidget()
+        sidebar: _CollapsibleSidebar = _CollapsibleSidebar(self)
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(SIDEBAR_WIDTH)
+        sidebar.setFixedWidth(SIDEBAR_COLLAPSED_WIDTH)
 
         layout: QVBoxLayout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(12, 20, 12, 20)
-        layout.setSpacing(4)
+        layout.setContentsMargins(8, 16, 8, 12)
+        layout.setSpacing(2)
 
-        title: QLabel = QLabel(APP_NAME)
-        title.setObjectName("sidebarTitle")
-        title.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(title)
-
-        layout.addSpacing(12)
+        self._nav_buttons: list[QPushButton] = []
+        self._nav_button_texts: list[str] = []
 
         for text, pixmap_name, index in self._NAV_ITEMS:
             icon: QIcon = QApplication.style().standardIcon(
                 getattr(QStyle.StandardPixmap, pixmap_name)
             )
-            button: QPushButton = QPushButton(icon, text)
+            button: QPushButton = QPushButton(icon, "")
             button.setObjectName("navButton")
             button.setCheckable(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setMinimumHeight(42)
+            button.setMinimumHeight(40)
+            button.setToolTip(text)
 
             self._nav_group.addButton(button, index)
             layout.addWidget(button)
+            self._nav_buttons.append(button)
+            self._nav_button_texts.append(text)
 
         layout.addStretch()
 
-        version_label: QLabel = QLabel("Product by Tatheer Fatima")
-        version_label.setObjectName("sidebarVersion")
-        version_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(version_label)
-
         self._nav_group.idClicked.connect(self._navigate_to)
 
+        self._sidebar_collapsed: bool = True
+        self._sidebar_anim = QVariantAnimation(self)
+        self._sidebar_anim.setDuration(200)
+        self._sidebar_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._sidebar_anim.valueChanged.connect(self._on_sidebar_anim)
+
         return sidebar
+
+    def _expand_sidebar(self) -> None:
+        """Animate the sidebar to its full width and show button text."""
+        if not self._sidebar_collapsed:
+            return
+        self._sidebar_anim.stop()
+        self._sidebar_collapsed = False
+        self._restore_nav_text()
+        self._start_sidebar_anim(
+            self._sidebar.width(), SIDEBAR_WIDTH
+        )
+
+    def _collapse_sidebar(self) -> None:
+        """Hide button text and animate the sidebar to collapsed width."""
+        if self._sidebar_collapsed:
+            return
+        self._sidebar_anim.stop()
+        self._hide_nav_text()
+        self._sidebar_collapsed = True
+        self._start_sidebar_anim(
+            self._sidebar.width(), SIDEBAR_COLLAPSED_WIDTH
+        )
+
+    def _start_sidebar_anim(self, start: int, end: int) -> None:
+        """Start sidebar width animation.
+
+        Args:
+            start: Starting width in pixels.
+            end: Target width in pixels.
+        """
+        self._sidebar_anim.setStartValue(start)
+        self._sidebar_anim.setEndValue(end)
+        self._sidebar_anim.start()
+
+    def _on_sidebar_anim(self, value: int) -> None:
+        """Update sidebar fixed width during animation.
+
+        Args:
+            value: Current animation value (width in pixels).
+        """
+        self._sidebar.setFixedWidth(value)
+
+    def _hide_nav_text(self) -> None:
+        """Clear button text so only icons remain visible."""
+        for btn in self._nav_buttons:
+            btn.setText("")
+
+    def _restore_nav_text(self) -> None:
+        """Restore original button text."""
+        for btn, text in zip(self._nav_buttons, self._nav_button_texts, strict=False):
+            btn.setText(text)
 
     def _build_views(self) -> QStackedWidget:
         """Create all child views and embed them in a QStackedWidget.

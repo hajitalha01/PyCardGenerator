@@ -20,6 +20,7 @@ COMPANY_NAME: str = "CardGenerator"
 WINDOW_MIN_WIDTH: int = 1200
 WINDOW_MIN_HEIGHT: int = 800
 SIDEBAR_WIDTH: int = 250
+SIDEBAR_COLLAPSED_WIDTH: int = 64
 
 # ------------------------------------------------------------------
 # Card dimensions

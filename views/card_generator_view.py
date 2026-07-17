@@ -1,16 +1,39 @@
 """Card generator view.
 
-Provides a dual-mode (Front / Back) input form and live preview
-for generating ID cards.  The page is split into a left scrollable
-form panel (35 %) and a right card-preview panel (65 %) via a
-QSplitter.  Switching between Front and Back mode changes the form
-fields and the visible preview accordingly.
+Dual-mode (Front / Back) input form and live preview for
+generating ID cards.  The left panel uses a QStackedWidget
+with two completely different layouts — one for Front (employee
+data) and one for Back (dependents management).
 
 Data flow
 ---------
 Form widgets are bound to a ``BindingManager`` via ``FormBinder``.
 All user input passes through the central ``CardDataModel`` before
 reaching the preview or any downstream engine.
+
+Layout
+------
++----------------------------------------------------------+
+| Page Header: Card Generator + description                |
++----------------------------------+-----------------------+
+| LEFT QStackedWidget              | RIGHT Live Preview    |
+|                                  |                       |
+| FRONT PAGE (index 0):            | [Front] [Back]        |
+|  Template                        | ┌─────────────────┐  |
+|  Photo                           | │   Card Preview  │  |
+|  Employee Information            │ │   (stretch=1)   │  |
+|    Name, Designation, ...        │ └─────────────────┘  |
+|  ──────────────────────          | [Fit][100%][+][-]    |
+|  [Save][DL Front][DL PDF]        | Template | Info bar  |
+|  [Reset Form]                    |                       |
+|                                  |                       |
+| BACK PAGE (index 1):             |                       |
+|  [+ Add] [Edit] [Remove] [Clear] |                       |
+|  Dependents Table                |                       |
+|  ──────────────────────          |                       |
+|  [DL Back][DL PDF]               |                       |
+|  [Reset Form]                    |                       |
++----------------------------------+-----------------------+
 """
 
 import logging
@@ -19,7 +42,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
-    QComboBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -30,7 +52,6 @@ from PySide6.QtWidgets import (
     QProgressDialog,
     QPushButton,
     QScrollArea,
-    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QTableWidget,
@@ -56,17 +77,10 @@ logger = logging.getLogger(__name__)
 class CardGeneratorView(QWidget):
     """Card generation workspace with Front / Back mode switching.
 
-    The form fields are bound to a ``BindingManager`` so that
-    every keystroke, date change, photo selection, and template
-    switch flows through the central ``CardDataModel`` before
-    reaching the preview engine or any future consumer.
-
-    Two tabs at the top control the active side:
-    - **Front mode**:  Front-only form fields + Front preview.
-    - **Back mode**:   Dependents management + Back preview.
-
-    The download buttons open a save dialog and delegate the
-    actual export to ``ExportManager``.
+    The left panel contains a QStackedWidget with two completely
+    different layouts — Front (employee data entry) and Back
+    (dependents management).  The right panel contains the live
+    preview with zoom controls and info bar.
     """
 
     # ------------------------------------------------------------------
@@ -88,7 +102,7 @@ class CardGeneratorView(QWidget):
         # Central data management (created before UI to avoid late init)
         self._binding_manager: BindingManager = BindingManager(self)
 
-        # Must be initialized before _setup_ui() because _build_form_fields
+        # Must be initialized before _setup_ui() because _build_front_fields
         # appends QLineEdit widgets to this list during UI construction.
         self._field_inputs: list[QLineEdit] = []
 
@@ -101,7 +115,7 @@ class CardGeneratorView(QWidget):
         self._form_binder: FormBinder = FormBinder(self._binding_manager)
         self._bind_form_widgets()
 
-            # Preview engine — consumes data model signals
+        # Preview engine — consumes data model signals
         self._preview_manager: PreviewManager = PreviewManager(
             self._front_preview, self._back_preview
         )
@@ -124,12 +138,18 @@ class CardGeneratorView(QWidget):
     def _setup_ui(self) -> None:
         """Build the complete page layout."""
         root: QVBoxLayout = QVBoxLayout(self)
-        root.setContentsMargins(40, 40, 40, 40)
-        root.setSpacing(16)
+        root.setContentsMargins(24, 0, 24, 0)
+        root.setSpacing(0)
+
+        # --- Title & description ---
+        header_widget: QWidget = QWidget()
+        header_layout: QVBoxLayout = QVBoxLayout(header_widget)
+        header_layout.setContentsMargins(0, 20, 0, 0)
+        header_layout.setSpacing(4)
 
         title: QLabel = QLabel("Card Generator")
         title.setObjectName("viewTitle")
-        root.addWidget(title)
+        header_layout.addWidget(title)
 
         description: QLabel = QLabel(
             "Fill in the cardholder details below.  "
@@ -137,34 +157,10 @@ class CardGeneratorView(QWidget):
         )
         description.setObjectName("viewDescription")
         description.setWordWrap(True)
-        root.addWidget(description)
+        header_layout.addWidget(description)
+        root.addWidget(header_widget)
 
-        # --- Front / Back mode selector tabs ---
-        tab_row: QWidget = QWidget()
-        tab_layout: QHBoxLayout = QHBoxLayout(tab_row)
-        tab_layout.setContentsMargins(0, 0, 0, 0)
-        tab_layout.setSpacing(4)
-
-        self._side_tab_group: QButtonGroup = QButtonGroup(self)
-        self._front_tab_btn: QPushButton = QPushButton("Front")
-        self._front_tab_btn.setObjectName("sideTabBtn")
-        self._front_tab_btn.setCheckable(True)
-        self._front_tab_btn.setChecked(True)
-        self._front_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._side_tab_group.addButton(self._front_tab_btn, 0)
-
-        self._back_tab_btn: QPushButton = QPushButton("Back")
-        self._back_tab_btn.setObjectName("sideTabBtn")
-        self._back_tab_btn.setCheckable(True)
-        self._back_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._side_tab_group.addButton(self._back_tab_btn, 1)
-
-        tab_layout.addWidget(self._front_tab_btn)
-        tab_layout.addWidget(self._back_tab_btn)
-        tab_layout.addStretch()
-        root.addWidget(tab_row)
-
-        # --- Body (splitter) ---
+        # --- Body (splitter: left stack | preview) ---
         body: QWidget = QWidget()
         body.setObjectName("viewContent")
         body_layout: QVBoxLayout = QVBoxLayout(body)
@@ -174,7 +170,7 @@ class CardGeneratorView(QWidget):
         splitter.setHandleWidth(1)
         splitter.setChildrenCollapsible(False)
 
-        splitter.addWidget(self._build_form_panel())
+        splitter.addWidget(self._build_left_panel())
         splitter.addWidget(self._build_preview_panel())
 
         splitter.setStretchFactor(0, 35)
@@ -184,238 +180,202 @@ class CardGeneratorView(QWidget):
         body_layout.addWidget(splitter)
         root.addWidget(body, stretch=1)
 
-        # Wire side tabs
-        self._side_tab_group.idClicked.connect(self._on_side_changed)
-
     # ------------------------------------------------------------------
-    # Form panel (left)
+    # Left panel (QStackedWidget: Front page / Back page)
     # ------------------------------------------------------------------
 
-    def _build_form_panel(self) -> QWidget:
-        """Construct the scrollable input form (left panel).
+    def _build_left_panel(self) -> QWidget:
+        """Construct the left panel with a stacked layout.
+
+        The stack switches between Front (employee data) and Back
+        (dependents management).  Each page has its own scroll area
+        and a fixed action bar below it.
 
         Returns:
-            A QScrollArea containing a shared template selector,
-            a stacked widget for Front/Back forms, and action buttons.
+            A widget containing a scroll area with a QStackedWidget
+            and mode-specific action bars.
         """
+        panel: QWidget = QWidget()
+        panel.setObjectName("leftPanel")
+
+        layout: QVBoxLayout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # --- Scroll area wrapping the stack ---
         scroll: QScrollArea = QScrollArea()
         scroll.setObjectName("formScroll")
         scroll.setWidgetResizable(True)
-        scroll.setMinimumWidth(300)
+        scroll.setMinimumWidth(280)
 
         container: QWidget = QWidget()
         container.setObjectName("formContainer")
-        form_vbox: QVBoxLayout = QVBoxLayout(container)
-        form_vbox.setContentsMargins(24, 24, 24, 24)
-        form_vbox.setSpacing(16)
+        container_layout: QVBoxLayout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
 
-        # --- Template selector (shared across modes) ---
+        self._left_stack: QStackedWidget = QStackedWidget()
+        self._left_stack.addWidget(self._build_front_content())  # index 0
+        self._left_stack.addWidget(self._build_back_content())   # index 1
+        self._left_stack.setCurrentIndex(0)
+
+        container_layout.addWidget(self._left_stack)
+        scroll.setWidget(container)
+        layout.addWidget(scroll, stretch=1)
+
+        # --- Action bars (always visible below scroll) ---
+        self._front_action_bar = self._build_front_action_bar()
+        self._back_action_bar = self._build_back_action_bar()
+        self._back_action_bar.setVisible(False)
+        layout.addWidget(self._front_action_bar)
+        layout.addWidget(self._back_action_bar)
+
+        return panel
+
+    def _build_front_content(self) -> QWidget:
+        """Build the Front page content.
+
+        Returns:
+            A widget with Template, Photo, and Employee Information
+            fields in a vertical layout.
+        """
+        widget: QWidget = QWidget()
+        layout: QVBoxLayout = QVBoxLayout(widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+
+        # -- Template --
         template_label: QLabel = QLabel("Template")
         template_label.setObjectName("formSectionTitle")
-        form_vbox.addWidget(template_label)
+        layout.addWidget(template_label)
 
         self._template_combo = WheelIgnoringComboBox()
         self._template_combo.setObjectName("fieldInput")
         self._template_combo.addItem("-- Select Template --", 0)
-        form_vbox.addWidget(self._template_combo)
+        layout.addWidget(self._template_combo)
 
-        # --- Stacked form: Front / Back ---
-        self._form_stack: QStackedWidget = QStackedWidget()
-        self._front_form: QWidget = self._build_front_form()
-        self._back_form: QWidget = self._build_back_form()
-        self._form_stack.addWidget(self._front_form)
-        self._form_stack.addWidget(self._back_form)
-        form_vbox.addWidget(self._form_stack)
-
-        # --- Divider and action buttons ---
-        form_vbox.addWidget(self._build_divider())
-        form_vbox.addLayout(self._build_action_buttons())
-
-        form_vbox.addStretch()
-        scroll.setWidget(container)
-        return scroll
-
-    # ------------------------------------------------------------------
-    # Front form
-    # ------------------------------------------------------------------
-
-    def _build_front_form(self) -> QWidget:
-        """Build the Front-side input form.
-
-        Returns:
-            A widget containing photo selection and all Front fields.
-        """
-        container: QWidget = QWidget()
-        layout: QVBoxLayout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
-
+        # -- Photo --
         layout.addWidget(self._build_photo_section())
 
-        self._side_indicator_front: QLabel = QLabel("Front Side Information")
+        # -- Employee Information --
+        self._side_indicator_front: QLabel = QLabel("Employee Information")
         self._side_indicator_front.setObjectName("formSectionTitle")
         layout.addWidget(self._side_indicator_front)
 
-        fields_layout: QFormLayout = self._build_front_fields()
-        layout.addLayout(fields_layout)
+        fields: QFormLayout = self._build_front_fields()
+        layout.addLayout(fields)
 
-        return container
+        layout.addStretch()
+        return widget
 
-    def _build_front_fields(self) -> QFormLayout:
-        """Build the Front-side labelled input fields.
-
-        Returns:
-            A QFormLayout containing all 9 front fields:
-            Employee Name, Employee Designation, Employee No,
-            Date of Birth, CNIC, Employee Category, Blood Group,
-            Location, and Dependents.
-        """
-        layout: QFormLayout = QFormLayout()
-        layout.setSpacing(10)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
-
-        # --- Employee Name ---
-        self._name_input = QLineEdit()
-        self._name_input.setObjectName("fieldInput")
-        self._name_input.setPlaceholderText("e.g. John Doe")
-        self._name_input.setToolTip("Employee full name (required)")
-        layout.addRow("Employee Name:", self._name_input)
-        self._field_inputs.append(self._name_input)
-
-        # --- Employee Designation ---
-        self._designation_input = QLineEdit()
-        self._designation_input.setObjectName("fieldInput")
-        self._designation_input.setPlaceholderText("e.g. Software Engineer")
-        self._designation_input.setToolTip("Employee designation (required)")
-        layout.addRow("Employee Designation:", self._designation_input)
-        self._field_inputs.append(self._designation_input)
-
-        # --- Employee No ---
-        self._emp_no_input = QLineEdit()
-        self._emp_no_input.setObjectName("fieldInput")
-        self._emp_no_input.setPlaceholderText("e.g. EMP-001")
-        self._emp_no_input.setToolTip("Employee number (required)")
-        layout.addRow("Employee No:", self._emp_no_input)
-        self._field_inputs.append(self._emp_no_input)
-
-        # --- Date of Birth ---
-        self._dob_input = QLineEdit()
-        self._dob_input.setObjectName("fieldInput")
-        self._dob_input.setPlaceholderText("e.g. 15-08-1990")
-        self._dob_input.setToolTip("Date of birth")
-        layout.addRow("Date of Birth:", self._dob_input)
-
-        # --- CNIC ---
-        self._cnic_input = QLineEdit()
-        self._cnic_input.setObjectName("fieldInput")
-        self._cnic_input.setPlaceholderText("e.g. 12345-6789012-3")
-        self._cnic_input.setToolTip("CNIC number")
-        layout.addRow("CNIC:", self._cnic_input)
-
-        # --- Employee Category ---
-        self._category_input = QLineEdit()
-        self._category_input.setObjectName("fieldInput")
-        self._category_input.setPlaceholderText("e.g. Permanent")
-        self._category_input.setToolTip("Employee category (required)")
-        layout.addRow("Employee Category:", self._category_input)
-        self._field_inputs.append(self._category_input)
-
-        # --- Blood Group ---
-        self._blood_group_input = QLineEdit()
-        self._blood_group_input.setObjectName("fieldInput")
-        self._blood_group_input.setPlaceholderText("e.g. A+")
-        self._blood_group_input.setToolTip("Blood group")
-        layout.addRow("Blood Group:", self._blood_group_input)
-
-        # --- Location ---
-        self._location_input = QLineEdit()
-        self._location_input.setObjectName("fieldInput")
-        self._location_input.setPlaceholderText("e.g. Head Office")
-        self._location_input.setToolTip("Location (required)")
-        layout.addRow("Location:", self._location_input)
-        self._field_inputs.append(self._location_input)
-
-        # --- Dependents ---
-        self._dependents_front_input = QLineEdit()
-        self._dependents_front_input.setObjectName("fieldInput")
-        self._dependents_front_input.setPlaceholderText("e.g. Self, Spouse, 2 Children")
-        self._dependents_front_input.setToolTip("Dependents information")
-        layout.addRow("Dependents:", self._dependents_front_input)
-
-        return layout
-
-    # ------------------------------------------------------------------
-    # Back form
-    # ------------------------------------------------------------------
-
-    def _build_back_form(self) -> QWidget:
-        """Build the Back-side input form with dependents management.
+    def _build_back_content(self) -> QWidget:
+        """Build the Back page content.
 
         Returns:
-            A widget containing the inline add/edit form, dependents
-            table, and action buttons.
+            A widget with dependents management heading, action
+            buttons, inline form, and the dependents table.
         """
-        container: QWidget = QWidget()
-        layout: QVBoxLayout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
+        widget: QWidget = QWidget()
+        layout: QVBoxLayout = QVBoxLayout(widget)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
 
-        self._side_indicator_back: QLabel = QLabel("Back Side Information")
-        self._side_indicator_back.setObjectName("formSectionTitle")
-        layout.addWidget(self._side_indicator_back)
+        # -- Heading --
+        heading_row: QWidget = QWidget()
+        heading_layout: QHBoxLayout = QHBoxLayout(heading_row)
+        heading_layout.setContentsMargins(0, 0, 0, 0)
 
-        dependents_title: QLabel = QLabel("Dependents")
-        dependents_title.setObjectName("formSectionTitle")
-        layout.addWidget(dependents_title)
+        heading: QLabel = QLabel("Dependent Management")
+        heading.setObjectName("formSectionTitle")
+        heading_layout.addWidget(heading)
+        heading_layout.addStretch()
 
-        # --- Inline add/edit form (hidden by default) ---
+        self._dependents_count: QLabel = QLabel("0 dependents")
+        self._dependents_count.setObjectName("infoLabel")
+        heading_layout.addWidget(self._dependents_count)
+        layout.addWidget(heading_row)
+
+        # -- Management buttons --
+        btn_row: QWidget = QWidget()
+        btn_layout: QHBoxLayout = QHBoxLayout(btn_row)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(8)
+
+        self._add_dep_btn = QPushButton("\u2795 Add")
+        self._add_dep_btn.setObjectName("actionButton")
+        self._add_dep_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add_dep_btn.setToolTip("Add a new dependent record")
+        self._add_dep_btn.clicked.connect(self._on_add_dependent)
+        btn_layout.addWidget(self._add_dep_btn)
+
+        self._edit_dep_btn = QPushButton("\u270f Edit")
+        self._edit_dep_btn.setObjectName("actionButton")
+        self._edit_dep_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._edit_dep_btn.setToolTip("Edit the selected dependent")
+        self._edit_dep_btn.clicked.connect(self._on_edit_dependent)
+        btn_layout.addWidget(self._edit_dep_btn)
+
+        self._remove_dep_btn = QPushButton("\u2716 Remove")
+        self._remove_dep_btn.setObjectName("actionButton")
+        self._remove_dep_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._remove_dep_btn.setToolTip("Remove the selected dependent")
+        self._remove_dep_btn.clicked.connect(self._on_remove_dependent)
+        btn_layout.addWidget(self._remove_dep_btn)
+
+        self._clear_all_btn = QPushButton("\U0001F9F9 Clear All")
+        self._clear_all_btn.setObjectName("actionButton")
+        self._clear_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._clear_all_btn.setToolTip("Remove all dependents")
+        self._clear_all_btn.clicked.connect(self._on_clear_all_dependents)
+        btn_layout.addWidget(self._clear_all_btn)
+
+        btn_layout.addStretch()
+        layout.addWidget(btn_row)
+
+        # -- Inline add/edit form (hidden by default) --
         self._dep_form_widget = QWidget()
         self._dep_form_widget.setObjectName("dependentForm")
         self._dep_form_widget.setVisible(False)
-        dep_form_layout: QFormLayout = QFormLayout(self._dep_form_widget)
-        dep_form_layout.setSpacing(8)
+
+        dep_form_layout: QHBoxLayout = QHBoxLayout(self._dep_form_widget)
         dep_form_layout.setContentsMargins(0, 0, 0, 0)
+        dep_form_layout.setSpacing(8)
 
         self._dep_name_input = QLineEdit()
         self._dep_name_input.setObjectName("fieldInput")
-        self._dep_name_input.setPlaceholderText("e.g. Ali")
-        dep_form_layout.addRow("Name:", self._dep_name_input)
+        self._dep_name_input.setPlaceholderText("Name")
+        dep_form_layout.addWidget(self._dep_name_input)
 
         self._dep_relation_input = QLineEdit()
         self._dep_relation_input.setObjectName("fieldInput")
-        self._dep_relation_input.setPlaceholderText("e.g. Son")
-        dep_form_layout.addRow("Relation:", self._dep_relation_input)
+        self._dep_relation_input.setPlaceholderText("Relation")
+        dep_form_layout.addWidget(self._dep_relation_input)
 
         self._dep_dob_input = QLineEdit()
         self._dep_dob_input.setObjectName("fieldInput")
-        self._dep_dob_input.setPlaceholderText("e.g. 10-10-2015")
-        dep_form_layout.addRow("Date of Birth:", self._dep_dob_input)
+        self._dep_dob_input.setPlaceholderText("Date of Birth")
+        dep_form_layout.addWidget(self._dep_dob_input)
 
         self._dep_cnic_input = QLineEdit()
         self._dep_cnic_input.setObjectName("fieldInput")
-        self._dep_cnic_input.setPlaceholderText("e.g. 12345-6789012-3")
-        dep_form_layout.addRow("CNIC:", self._dep_cnic_input)
+        self._dep_cnic_input.setPlaceholderText("CNIC")
+        dep_form_layout.addWidget(self._dep_cnic_input)
 
-        # Save / Cancel buttons
-        dep_btn_row: QHBoxLayout = QHBoxLayout()
         self._dep_save_btn: QPushButton = QPushButton("Save")
         self._dep_save_btn.setObjectName("actionButton")
         self._dep_save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._dep_save_btn.clicked.connect(self._on_save_dependent)
-        dep_btn_row.addWidget(self._dep_save_btn)
+        dep_form_layout.addWidget(self._dep_save_btn)
 
         self._dep_cancel_btn: QPushButton = QPushButton("Cancel")
         self._dep_cancel_btn.setObjectName("actionButton")
         self._dep_cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._dep_cancel_btn.clicked.connect(self._on_cancel_dependent)
-        dep_btn_row.addWidget(self._dep_cancel_btn)
-
-        dep_form_layout.addRow(dep_btn_row)
+        dep_form_layout.addWidget(self._dep_cancel_btn)
 
         layout.addWidget(self._dep_form_widget)
 
-        # --- Dependents table ---
+        # -- Dependents table --
         self._dependents_table: QTableWidget = QTableWidget()
         self._dependents_table.setObjectName("dependentsTable")
         self._dependents_table.setColumnCount(5)
@@ -432,52 +392,169 @@ class CardGeneratorView(QWidget):
         self._dependents_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers
         )
-        self._dependents_table.setMinimumHeight(120)
-        layout.addWidget(self._dependents_table)
+        self._dependents_table.setMinimumHeight(100)
+        layout.addWidget(self._dependents_table, stretch=1)
 
-        # --- Action buttons (below table) ---
-        btn_layout: QHBoxLayout = QHBoxLayout()
-        btn_layout.setSpacing(8)
+        return widget
 
-        self._add_dep_btn = QPushButton("+ Add Dependent")
-        self._add_dep_btn.setObjectName("actionButton")
-        self._add_dep_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._add_dep_btn.setToolTip("Add a new dependent record")
-        self._add_dep_btn.clicked.connect(self._on_add_dependent)
-        btn_layout.addWidget(self._add_dep_btn)
+    def _build_front_action_bar(self) -> QWidget:
+        """Build the fixed action bar for Front mode.
 
-        self._edit_dep_btn = QPushButton("Edit Selected")
-        self._edit_dep_btn.setObjectName("actionButton")
-        self._edit_dep_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._edit_dep_btn.setToolTip("Edit the selected dependent")
-        self._edit_dep_btn.clicked.connect(self._on_edit_dependent)
-        btn_layout.addWidget(self._edit_dep_btn)
+        Returns:
+            A widget with Save, Download Front, Download PDF, and
+            Reset Form buttons.
+        """
+        bar: QWidget = QWidget()
+        bar.setObjectName("frontActionBar")
 
-        self._remove_dep_btn = QPushButton("Remove Selected")
-        self._remove_dep_btn.setObjectName("actionButton")
-        self._remove_dep_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._remove_dep_btn.setToolTip("Remove the selected dependent")
-        self._remove_dep_btn.clicked.connect(self._on_remove_dependent)
-        btn_layout.addWidget(self._remove_dep_btn)
+        layout: QHBoxLayout = QHBoxLayout(bar)
+        layout.setContentsMargins(20, 12, 20, 14)
+        layout.setSpacing(8)
 
-        self._clear_all_btn = QPushButton("Clear All")
-        self._clear_all_btn.setObjectName("actionButton")
-        self._clear_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._clear_all_btn.setToolTip("Remove all dependents")
-        self._clear_all_btn.clicked.connect(self._on_clear_all_dependents)
-        btn_layout.addWidget(self._clear_all_btn)
+        self._save_btn = QPushButton("Save")
+        self._save_btn.setObjectName("actionButton")
+        self._save_btn.setEnabled(False)
+        self._save_btn.setToolTip("Save the current card to history (coming soon)")
+        layout.addWidget(self._save_btn)
 
-        self._reset_form_btn = QPushButton("Reset Form")
-        self._reset_form_btn.setObjectName("actionButton")
-        self._reset_form_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._reset_form_btn.setToolTip("Clear input fields only, keep dependents")
-        self._reset_form_btn.clicked.connect(self._on_reset_form)
-        btn_layout.addWidget(self._reset_form_btn)
+        self._dl_front_btn = QPushButton("Download Front")
+        self._dl_front_btn.setObjectName("actionButton")
+        self._dl_front_btn.setEnabled(False)
+        self._dl_front_btn.setToolTip("Export the front card as PNG or JPEG")
+        layout.addWidget(self._dl_front_btn)
 
-        layout.addLayout(btn_layout)
+        self._dl_pdf_btn = QPushButton("Download PDF")
+        self._dl_pdf_btn.setObjectName("actionButton")
+        self._dl_pdf_btn.setEnabled(False)
+        self._dl_pdf_btn.setToolTip("Export the combined front + back PDF")
+        layout.addWidget(self._dl_pdf_btn)
+
         layout.addStretch()
 
-        return container
+        reset_front: QPushButton = QPushButton("Reset Form")
+        reset_front.setObjectName("actionButton")
+        reset_front.setCursor(Qt.CursorShape.PointingHandCursor)
+        reset_front.setToolTip("Reset all form fields to their default values")
+        reset_front.clicked.connect(self._on_clear_form)
+        layout.addWidget(reset_front)
+
+        return bar
+
+    def _build_back_action_bar(self) -> QWidget:
+        """Build the fixed action bar for Back mode.
+
+        Returns:
+            A widget with Download Back, Download PDF, and Reset Form
+            buttons.
+        """
+        bar: QWidget = QWidget()
+        bar.setObjectName("backActionBar")
+
+        layout: QHBoxLayout = QHBoxLayout(bar)
+        layout.setContentsMargins(20, 12, 20, 14)
+        layout.setSpacing(8)
+
+        self._dl_back_btn = QPushButton("Download Back")
+        self._dl_back_btn.setObjectName("actionButton")
+        self._dl_back_btn.setEnabled(False)
+        self._dl_back_btn.setToolTip("Export the back card as PNG or JPEG")
+        layout.addWidget(self._dl_back_btn)
+
+        self._dl_pdf_back_btn = QPushButton("Download PDF")
+        self._dl_pdf_back_btn.setObjectName("actionButton")
+        self._dl_pdf_back_btn.setEnabled(False)
+        self._dl_pdf_back_btn.setToolTip("Export the combined front + back PDF")
+        layout.addWidget(self._dl_pdf_back_btn)
+
+        layout.addStretch()
+
+        reset_back: QPushButton = QPushButton("Reset Form")
+        reset_back.setObjectName("actionButton")
+        reset_back.setCursor(Qt.CursorShape.PointingHandCursor)
+        reset_back.setToolTip("Reset dependent form fields")
+        reset_back.clicked.connect(self._on_reset_form)
+        layout.addWidget(reset_back)
+
+        return bar
+
+    # ------------------------------------------------------------------
+    # Front form
+    # ------------------------------------------------------------------
+
+    def _build_front_fields(self) -> QFormLayout:
+        """Build the Front-side labelled input fields.
+
+        Returns:
+            A QFormLayout containing all 9 front fields:
+            Employee Name, Employee Designation, Employee No,
+            Date of Birth, CNIC, Employee Category, Blood Group,
+            Location, and Dependents.
+        """
+        layout: QFormLayout = QFormLayout()
+        layout.setSpacing(8)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+
+        self._name_input = QLineEdit()
+        self._name_input.setObjectName("fieldInput")
+        self._name_input.setPlaceholderText("e.g. John Doe")
+        self._name_input.setToolTip("Employee full name (required)")
+        layout.addRow("Employee Name:", self._name_input)
+        self._field_inputs.append(self._name_input)
+
+        self._designation_input = QLineEdit()
+        self._designation_input.setObjectName("fieldInput")
+        self._designation_input.setPlaceholderText("e.g. Software Engineer")
+        self._designation_input.setToolTip("Employee designation (required)")
+        layout.addRow("Employee Designation:", self._designation_input)
+        self._field_inputs.append(self._designation_input)
+
+        self._emp_no_input = QLineEdit()
+        self._emp_no_input.setObjectName("fieldInput")
+        self._emp_no_input.setPlaceholderText("e.g. EMP-001")
+        self._emp_no_input.setToolTip("Employee number (required)")
+        layout.addRow("Employee No:", self._emp_no_input)
+        self._field_inputs.append(self._emp_no_input)
+
+        self._dob_input = QLineEdit()
+        self._dob_input.setObjectName("fieldInput")
+        self._dob_input.setPlaceholderText("e.g. 15-08-1990")
+        self._dob_input.setToolTip("Date of birth")
+        layout.addRow("Date of Birth:", self._dob_input)
+
+        self._cnic_input = QLineEdit()
+        self._cnic_input.setObjectName("fieldInput")
+        self._cnic_input.setPlaceholderText("e.g. 12345-6789012-3")
+        self._cnic_input.setToolTip("CNIC number")
+        layout.addRow("CNIC:", self._cnic_input)
+
+        self._category_input = QLineEdit()
+        self._category_input.setObjectName("fieldInput")
+        self._category_input.setPlaceholderText("e.g. Permanent")
+        self._category_input.setToolTip("Employee category (required)")
+        layout.addRow("Employee Category:", self._category_input)
+        self._field_inputs.append(self._category_input)
+
+        self._blood_group_input = QLineEdit()
+        self._blood_group_input.setObjectName("fieldInput")
+        self._blood_group_input.setPlaceholderText("e.g. A+")
+        self._blood_group_input.setToolTip("Blood group")
+        layout.addRow("Blood Group:", self._blood_group_input)
+
+        self._location_input = QLineEdit()
+        self._location_input.setObjectName("fieldInput")
+        self._location_input.setPlaceholderText("e.g. Head Office")
+        self._location_input.setToolTip("Location (required)")
+        layout.addRow("Location:", self._location_input)
+        self._field_inputs.append(self._location_input)
+
+        self._dependents_front_input = QLineEdit()
+        self._dependents_front_input.setObjectName("fieldInput")
+        self._dependents_front_input.setPlaceholderText("e.g. Self, Spouse, 2 Children")
+        self._dependents_front_input.setToolTip("Dependents information")
+        layout.addRow("Dependents:", self._dependents_front_input)
+
+        return layout
 
     # ------------------------------------------------------------------
     # Photo section
@@ -517,64 +594,6 @@ class CardGeneratorView(QWidget):
         return section
 
     # ------------------------------------------------------------------
-    # Action buttons (shared)
-    # ------------------------------------------------------------------
-
-    def _build_action_buttons(self) -> QVBoxLayout:
-        """Build the form action buttons.
-
-        Returns:
-            A vertical layout with two rows of buttons.
-        """
-        layout: QVBoxLayout = QVBoxLayout()
-        layout.setSpacing(8)
-
-        # Row one — clear
-        row1: QHBoxLayout = QHBoxLayout()
-        row1.setSpacing(8)
-
-        clear_btn: QPushButton = QPushButton("Clear Form")
-        clear_btn.setObjectName("actionButton")
-        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setToolTip("Reset all form fields to their default values")
-        clear_btn.clicked.connect(self._on_clear_form)
-        row1.addWidget(clear_btn)
-
-        row1.addStretch()
-        layout.addLayout(row1)
-
-        # Row two — download actions
-        row2: QHBoxLayout = QHBoxLayout()
-        row2.setSpacing(8)
-
-        self._save_btn: QPushButton = QPushButton("Save")
-        self._save_btn.setObjectName("actionButton")
-        self._save_btn.setEnabled(False)
-        self._save_btn.setToolTip("Save the current card to history (coming soon)")
-        row2.addWidget(self._save_btn)
-
-        self._dl_front_btn: QPushButton = QPushButton("Download Front")
-        self._dl_front_btn.setObjectName("actionButton")
-        self._dl_front_btn.setEnabled(False)
-        self._dl_front_btn.setToolTip("Export the front card as PNG or JPEG")
-        row2.addWidget(self._dl_front_btn)
-
-        self._dl_back_btn: QPushButton = QPushButton("Download Back")
-        self._dl_back_btn.setObjectName("actionButton")
-        self._dl_back_btn.setEnabled(False)
-        self._dl_back_btn.setToolTip("Export the back card as PNG or JPEG")
-        row2.addWidget(self._dl_back_btn)
-
-        self._dl_pdf_btn: QPushButton = QPushButton("Download PDF")
-        self._dl_pdf_btn.setObjectName("actionButton")
-        self._dl_pdf_btn.setEnabled(False)
-        self._dl_pdf_btn.setToolTip("Export the combined front + back PDF")
-        row2.addWidget(self._dl_pdf_btn)
-
-        layout.addLayout(row2)
-        return layout
-
-    # ------------------------------------------------------------------
     # Preview panel (right)
     # ------------------------------------------------------------------
 
@@ -582,23 +601,22 @@ class CardGeneratorView(QWidget):
         """Construct the live preview area (right panel).
 
         Returns:
-            A widget containing the preview heading with expand button,
-            front and back preview canvases (one visible at a time),
-            and an information bar at the bottom.
+            A widget containing front/back toggle tabs, preview
+            canvases, zoom controls, and info bar.
         """
         panel: QWidget = QWidget()
         panel.setObjectName("previewPanel")
-        panel.setMinimumWidth(400)
+        panel.setMinimumWidth(380)
 
         layout: QVBoxLayout = QVBoxLayout(panel)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(12)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(8)
 
-        # --- Preview title row with expand button ---
+        # --- Preview title row with side tabs ---
         title_row: QWidget = QWidget()
         title_row_layout: QHBoxLayout = QHBoxLayout(title_row)
         title_row_layout.setContentsMargins(0, 0, 0, 0)
-        title_row_layout.setSpacing(8)
+        title_row_layout.setSpacing(6)
 
         heading: QLabel = QLabel("Live Preview")
         heading.setObjectName("previewTitle")
@@ -606,29 +624,124 @@ class CardGeneratorView(QWidget):
 
         title_row_layout.addStretch()
 
-        self._expand_preview_btn: QPushButton = QPushButton("Expand Preview")
-        self._expand_preview_btn.setObjectName("actionButton")
-        self._expand_preview_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._expand_preview_btn.setToolTip("Open a larger preview window")
-        self._expand_preview_btn.clicked.connect(self._on_expand_preview)
-        title_row_layout.addWidget(self._expand_preview_btn)
+        self._side_tab_group: QButtonGroup = QButtonGroup(self)
+        self._front_tab_btn: QPushButton = QPushButton("Front")
+        self._front_tab_btn.setObjectName("sideTabBtn")
+        self._front_tab_btn.setCheckable(True)
+        self._front_tab_btn.setChecked(True)
+        self._front_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._side_tab_group.addButton(self._front_tab_btn, 0)
+
+        self._back_tab_btn: QPushButton = QPushButton("Back")
+        self._back_tab_btn.setObjectName("sideTabBtn")
+        self._back_tab_btn.setCheckable(True)
+        self._back_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._side_tab_group.addButton(self._back_tab_btn, 1)
+
+        title_row_layout.addWidget(self._front_tab_btn)
+        title_row_layout.addWidget(self._back_tab_btn)
+
+        expand_btn: QPushButton = QPushButton("Expand")
+        expand_btn.setObjectName("previewToolBtn")
+        expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        expand_btn.setToolTip("Open a larger preview window")
+        expand_btn.clicked.connect(self._on_expand_preview)
+        title_row_layout.addWidget(expand_btn)
 
         layout.addWidget(title_row)
 
-        # --- Card preview canvases (only one visible at a time) ---
-        self._front_preview: PreviewCanvas = PreviewCanvas("Front Card")
+        # --- Card preview canvases (stacked, only one visible) ---
+        self._preview_stack: QStackedWidget = QStackedWidget()
+        self._front_preview: PreviewCanvas = PreviewCanvas("")
         self._front_preview.set_placeholder("No Front Template Selected")
-        layout.addWidget(self._front_preview, stretch=1)
+        self._preview_stack.addWidget(self._front_preview)
 
-        self._back_preview: PreviewCanvas = PreviewCanvas("Back Card")
+        self._back_preview: PreviewCanvas = PreviewCanvas("")
         self._back_preview.set_placeholder("No Back Template Selected")
-        self._back_preview.setVisible(False)
-        layout.addWidget(self._back_preview, stretch=1)
+        self._preview_stack.addWidget(self._back_preview)
+
+        self._preview_stack.setCurrentIndex(0)
+        layout.addWidget(self._preview_stack, stretch=1)
+
+        self._side_tab_group.idClicked.connect(self._on_side_changed)
+
+        # --- Zoom controls ---
+        layout.addWidget(self._build_zoom_controls())
 
         # --- Information bar ---
         layout.addWidget(self._build_info_bar())
 
         return panel
+
+    def _build_zoom_controls(self) -> QWidget:
+        """Construct the zoom control bar for the preview.
+
+        Returns:
+            A widget with Fit to Screen, 100%, Zoom In, and Zoom Out buttons.
+        """
+        bar: QWidget = QWidget()
+        bar.setObjectName("zoomToolbar")
+
+        layout: QHBoxLayout = QHBoxLayout(bar)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        fit_btn: QPushButton = QPushButton("Fit to Screen")
+        fit_btn.setObjectName("zoomBtn")
+        fit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        fit_btn.setToolTip("Scale the preview to fit the viewport")
+        fit_btn.clicked.connect(self._on_zoom_fit)
+        layout.addWidget(fit_btn)
+
+        reset_btn: QPushButton = QPushButton("100%")
+        reset_btn.setObjectName("zoomBtn")
+        reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        reset_btn.setToolTip("Reset zoom to 100%")
+        reset_btn.clicked.connect(self._on_zoom_reset)
+        layout.addWidget(reset_btn)
+
+        zoom_in_btn: QPushButton = QPushButton("+")
+        zoom_in_btn.setObjectName("zoomBtn")
+        zoom_in_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        zoom_in_btn.setToolTip("Zoom in")
+        zoom_in_btn.setFixedWidth(32)
+        zoom_in_btn.clicked.connect(self._on_zoom_in)
+        layout.addWidget(zoom_in_btn)
+
+        zoom_out_btn: QPushButton = QPushButton("\u2212")
+        zoom_out_btn.setObjectName("zoomBtn")
+        zoom_out_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        zoom_out_btn.setToolTip("Zoom out")
+        zoom_out_btn.setFixedWidth(32)
+        zoom_out_btn.clicked.connect(self._on_zoom_out)
+        layout.addWidget(zoom_out_btn)
+
+        layout.addStretch()
+        return bar
+
+    def _on_zoom_fit(self) -> None:
+        """Fit the active preview to the viewport."""
+        self._active_preview().fit_to_window()
+
+    def _on_zoom_reset(self) -> None:
+        """Reset the active preview zoom to 100%."""
+        self._active_preview().reset_zoom()
+
+    def _on_zoom_in(self) -> None:
+        """Zoom in on the active preview."""
+        self._active_preview().zoom_in()
+
+    def _on_zoom_out(self) -> None:
+        """Zoom out on the active preview."""
+        self._active_preview().zoom_out()
+
+    def _active_preview(self) -> PreviewCanvas:
+        """Return the currently visible preview canvas.
+
+        Returns:
+            The active PreviewCanvas based on the current side.
+        """
+        return self._front_preview if self._active_side == "front" else self._back_preview
 
     def _build_info_bar(self) -> QWidget:
         """Build the bottom information strip.
@@ -641,8 +754,8 @@ class CardGeneratorView(QWidget):
         bar.setObjectName("infoBar")
 
         b_layout: QHBoxLayout = QHBoxLayout(bar)
-        b_layout.setContentsMargins(0, 0, 0, 0)
-        b_layout.setSpacing(24)
+        b_layout.setContentsMargins(10, 6, 10, 6)
+        b_layout.setSpacing(12)
 
         self._info_template: QLabel = QLabel("Template: None")
         self._info_template.setObjectName("infoLabel")
@@ -652,7 +765,7 @@ class CardGeneratorView(QWidget):
         self._info_image.setObjectName("infoLabel")
         b_layout.addWidget(self._info_image)
 
-        self._info_card: QLabel = QLabel("Card: 85.6 × 54.0 mm")
+        self._info_card: QLabel = QLabel("Card: 85.6 \u00d7 54.0 mm")
         self._info_card.setObjectName("infoLabel")
         b_layout.addWidget(self._info_card)
 
@@ -666,6 +779,8 @@ class CardGeneratorView(QWidget):
 
         b_layout.addStretch()
         return bar
+
+
 
     # ------------------------------------------------------------------
     # Form bindings
@@ -716,14 +831,11 @@ class CardGeneratorView(QWidget):
             tab_id: ``0`` for Front, ``1`` for Back.
         """
         self._active_side = "front" if tab_id == 0 else "back"
-        showing_front: bool = self._active_side == "front"
-
-        # Switch form
-        self._form_stack.setCurrentIndex(0 if showing_front else 1)
-
-        # Switch preview
-        self._front_preview.setVisible(showing_front)
-        self._back_preview.setVisible(not showing_front)
+        is_front: bool = self._active_side == "front"
+        self._preview_stack.setCurrentIndex(0 if is_front else 1)
+        self._left_stack.setCurrentIndex(0 if is_front else 1)
+        self._front_action_bar.setVisible(is_front)
+        self._back_action_bar.setVisible(not is_front)
 
     # ------------------------------------------------------------------
     # Dependents management
@@ -829,16 +941,13 @@ class CardGeneratorView(QWidget):
         self._binding_manager.remove_dependent(index)
         self._refresh_dependents_table()
 
-        # Adjust editing index after removal
         if self._editing_dep_index is not None:
             if self._editing_dep_index == index:
-                # The row being edited was removed
                 self._editing_dep_index = None
                 self._clear_dependent_form()
                 self._dep_form_widget.setVisible(False)
                 self._add_dep_btn.setEnabled(True)
             elif self._editing_dep_index > index:
-                # The removed row was before the edited row
                 self._editing_dep_index -= 1
 
     def _on_clear_all_dependents(self) -> None:
@@ -896,6 +1005,7 @@ class CardGeneratorView(QWidget):
             self._dependents_table.setItem(
                 i, 4, QTableWidgetItem(dep.get("cnic", ""))
             )
+        self._dependents_count.setText(f"{len(deps)} dependent{'s' if len(deps) != 1 else ''}")
 
     # ------------------------------------------------------------------
     # Expand preview
@@ -905,7 +1015,6 @@ class CardGeneratorView(QWidget):
         """Open the large preview dialog with the current card image."""
         dialog: LargePreviewDialog = LargePreviewDialog(self)
 
-        # Determine which pixmap to show
         if self._active_side == "front":
             pixmap: QPixmap = self._front_preview.current_pixmap()
             if pixmap.isNull():
@@ -920,20 +1029,6 @@ class CardGeneratorView(QWidget):
                 dialog.set_pixmap(pixmap)
 
         dialog.exec()
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _build_divider(self) -> QWidget:
-        """A thin horizontal line used to separate sections."""
-        line: QWidget = QWidget()
-        line.setObjectName("divider")
-        line.setFixedHeight(1)
-        line.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
-        return line
 
     # ------------------------------------------------------------------
     # Export workflow
@@ -953,6 +1048,11 @@ class CardGeneratorView(QWidget):
 
         self._dl_pdf_btn.setEnabled(True)
         self._dl_pdf_btn.clicked.connect(
+            lambda: self._on_download("combined")
+        )
+
+        self._dl_pdf_back_btn.setEnabled(True)
+        self._dl_pdf_back_btn.clicked.connect(
             lambda: self._on_download("combined")
         )
 
@@ -1007,7 +1107,7 @@ class CardGeneratorView(QWidget):
                 self,
                 "Validation Error",
                 "Please fix the following before exporting:\n\n"
-                + "\n".join(f"• {e}" for e in errors),
+                + "\n".join(f"\u2022 {e}" for e in errors),
             )
             return
 
@@ -1078,6 +1178,7 @@ class CardGeneratorView(QWidget):
         self._dl_front_btn.setEnabled(enabled)
         self._dl_back_btn.setEnabled(enabled)
         self._dl_pdf_btn.setEnabled(enabled)
+        self._dl_pdf_back_btn.setEnabled(enabled)
         self._save_btn.setEnabled(enabled)
 
     # ------------------------------------------------------------------

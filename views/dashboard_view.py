@@ -22,7 +22,7 @@ class DashboardView(QWidget):
         self.setObjectName("dashboardView")
 
         layout: QVBoxLayout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
         title: QLabel = QLabel("Dashboard")

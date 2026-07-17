@@ -38,10 +38,12 @@ Layout
 
 import logging
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtGui import QKeyEvent, QPixmap
 from PySide6.QtWidgets import (
+    QApplication,
     QButtonGroup,
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -72,6 +74,38 @@ from views.widgets.preview_canvas import PreviewCanvas
 from views.widgets.wheel_ignoring_combo import WheelIgnoringComboBox
 
 logger = logging.getLogger(__name__)
+
+
+class _EnterToTabFilter(QObject):
+    """Event filter that converts Enter→Tab for form navigation.
+
+    When the user presses Enter/Return on a ``QLineEdit`` or
+    ``QComboBox`` (while its popup is closed), focus advances to
+    the next widget in Qt's focus chain — identical to pressing Tab.
+
+    Install it on the parent container that holds the form fields::
+
+        filter = _EnterToTabFilter(container)
+        container.installEventFilter(filter)
+
+    The filter does **not** intercept Enter when a ``QComboBox``
+    dropdown is open (so Enter still closes the popup normally).
+    """
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.KeyPress:
+            key: int = event.key()
+            if key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
+                widget: QWidget | None = QApplication.focusWidget()
+                if isinstance(widget, QLineEdit):
+                    widget.focusNextChild()
+                    return True
+                if isinstance(widget, QComboBox):
+                    if widget.view() and widget.view().isVisible():
+                        return False
+                    widget.focusNextChild()
+                    return True
+        return super().eventFilter(obj, event)
 
 
 class CardGeneratorView(QWidget):
@@ -229,6 +263,10 @@ class CardGeneratorView(QWidget):
         self._back_action_bar.setVisible(False)
         layout.addWidget(self._front_action_bar)
         layout.addWidget(self._back_action_bar)
+
+        # Enter → Tab navigation for the entire left panel
+        self._enter_filter: _EnterToTabFilter = _EnterToTabFilter(panel)
+        panel.installEventFilter(self._enter_filter)
 
         return panel
 

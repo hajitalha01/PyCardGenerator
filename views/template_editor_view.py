@@ -132,7 +132,6 @@ class TemplateEditorView(QWidget):
         body.setSizes([300, 600, 220])
 
         root.addWidget(body, stretch=1)
-        root.addWidget(self._build_inspector())
         root.addWidget(self._build_status_bar())
 
     # ------------------------------------------------------------------
@@ -452,36 +451,6 @@ class TemplateEditorView(QWidget):
         panel_layout: QVBoxLayout = QVBoxLayout(panel)
         panel_layout.setContentsMargins(0, 0, 0, 0)
         panel_layout.addWidget(scroll)
-
-        return panel
-
-    # ------------------------------------------------------------------
-    # Bottom panel — inspector
-    # ------------------------------------------------------------------
-
-    def _build_inspector(self) -> QWidget:
-        """Construct the bottom properties inspector.
-
-        Returns:
-            A widget showing placeholder fields for object
-            properties (X, Y, Width, Height, Rotation, etc.).
-        """
-        panel: QWidget = QWidget()
-        panel.setObjectName("inspectorPanel")
-        panel.setFixedHeight(90)
-
-        layout: QHBoxLayout = QHBoxLayout(panel)
-        layout.setContentsMargins(16, 8, 16, 8)
-        layout.setSpacing(12)
-
-        self._inspector_label: QLabel = QLabel("No object selected")
-        self._inspector_label.setObjectName("inspectorLabel")
-        self._inspector_label.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-        )
-        layout.addWidget(self._inspector_label)
-
-        layout.addStretch()
 
         return panel
 
@@ -1295,7 +1264,6 @@ class TemplateEditorView(QWidget):
             self._text_format_widget.setVisible(False)
 
         self._status_object.setText(f"Object: {name}")
-        self._inspector_label.setText(f"Selected: {name}")
 
     def _on_selection_changed(self) -> None:
         """Update UI when the scene selection changes."""
@@ -1305,4 +1273,3 @@ class TemplateEditorView(QWidget):
         else:
             self._text_format_widget.setVisible(False)
             self._status_object.setText("Object: None")
-            self._inspector_label.setText("No object selected")

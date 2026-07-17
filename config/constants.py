@@ -34,7 +34,7 @@ CARD_HEIGHT_PX: int = 379
 # Rendering resolution
 # ------------------------------------------------------------------
 CARD_DPI: int = 300        # Base DPI for editor scene calculations
-PREVIEW_DPI: int = 150     # Live preview (fast, lightweight)
+PREVIEW_DPI: int = 300     # Live preview (balanced quality & speed)
 EXPORT_DPI: int = 600      # Export / print (professional quality)
 
 # ------------------------------------------------------------------

@@ -121,6 +121,7 @@ class EditorCanvas(QGraphicsView):
         self.setScene(self._scene)
 
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
 
         self.setDragMode(QGraphicsView.DragMode.NoDrag)

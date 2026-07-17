@@ -117,8 +117,12 @@ def _get_font(
 ) -> ImageFont.FreeTypeFont:
     """Return a TrueType font for the requested face and style.
 
-    Falls back to Pillow's default bitmap font when the requested
-    family cannot be found on disk.
+    Tries, in order:
+      1. The resolved TTF path via ``_find_font_path``.
+      2. Direct ``ImageFont.truetype(family)`` — Windows font-name
+         resolution (works for any registered font).
+      3. Arial as a universal fallback.
+      4. Pillow's default bitmap font (last resort).
 
     Args:
         family: Font family name.
@@ -134,9 +138,31 @@ def _get_font(
         try:
             return ImageFont.truetype(path, size)
         except OSError:
-            logger.warning("Failed to load font %s, falling back", path)
+            logger.warning("Failed to load font file %s", path)
 
-    logger.debug("Font '%s' (bold=%s italic=%s) not found, using default", family, bold, italic)
+    # Try direct system font-name resolution (Windows font registry)
+    try:
+        return ImageFont.truetype(family, size)
+    except OSError:
+        pass
+
+    # Try Arial as a safe universal fallback
+    arial_path: str | None = _find_font_path("Arial", bold, italic)
+    if arial_path:
+        try:
+            logger.warning(
+                "Font '%s' not found, falling back to Arial",
+                family,
+            )
+            return ImageFont.truetype(arial_path, size)
+        except OSError:
+            pass
+
+    # Absolute last resort — bitmap default
+    logger.error(
+        "Font '%s' and Arial fallback unavailable, using bitmap default",
+        family,
+    )
     return ImageFont.load_default()
 
 

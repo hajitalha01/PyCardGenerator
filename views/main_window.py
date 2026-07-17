@@ -19,7 +19,7 @@ Geometry and position are persisted via QSettings so that the
 window reopens at the same size and location.
 """
 
-from PySide6.QtCore import Qt, QDate, QEasingCurve, QEvent, QSettings, QVariantAnimation, Signal
+from PySide6.QtCore import Qt, QDate, QEasingCurve, QEvent, QVariantAnimation, Signal
 from PySide6.QtGui import QIcon, QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
@@ -46,6 +46,7 @@ from config.constants import (
     WINDOW_MIN_WIDTH,
 )
 from controllers.template_controller import TemplateController
+from utils.settings_manager import SettingsManager
 from views.card_generator_view import CardGeneratorView
 from views.card_history_view import CardHistoryView
 from views.dashboard_view import DashboardView
@@ -97,6 +98,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.setMinimumSize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
 
+        self._settings: SettingsManager = SettingsManager()
         self._nav_group: QButtonGroup = QButtonGroup(self)
         self._stack: QStackedWidget = self._build_views()
 
@@ -345,10 +347,9 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _restore_window_state(self) -> None:
-        """Restore the window geometry and position from QSettings."""
-        settings: QSettings = QSettings(APP_NAME, APP_NAME)
-        geom: bytes | None = settings.value("main_window/geometry")
-        state: bytes | None = settings.value("main_window/state")
+        """Restore the window geometry and position from SettingsManager."""
+        geom: bytes | None = self._settings.window_geometry
+        state: bytes | None = self._settings.window_state
         if geom is not None:
             self.restoreGeometry(geom)
         if state is not None:
@@ -360,9 +361,7 @@ class MainWindow(QMainWindow):
         Args:
             event: The close event.
         """
-        settings: QSettings = QSettings(APP_NAME, APP_NAME)
-        settings.setValue("main_window/geometry", self.saveGeometry())
-        settings.setValue("main_window/state", self.saveState())
+        self._settings.save_window_geometry(self.saveGeometry(), self.saveState())
         super().closeEvent(event)
 
     # ------------------------------------------------------------------

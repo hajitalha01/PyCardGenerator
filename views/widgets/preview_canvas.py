@@ -129,6 +129,7 @@ class _CardGraphicsView(QGraphicsView):
         self.setObjectName("cardGraphicsView")
         self.setRenderHints(
             QPainter.RenderHint.Antialiasing
+            | QPainter.RenderHint.TextAntialiasing
             | QPainter.RenderHint.SmoothPixmapTransform
         )
         self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)

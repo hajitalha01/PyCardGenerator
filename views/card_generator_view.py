@@ -48,6 +48,7 @@ from services.export.file_name_generator import FileNameGenerator
 from views.preview_manager import PreviewManager
 from views.widgets.large_preview_dialog import LargePreviewDialog
 from views.widgets.preview_canvas import PreviewCanvas
+from views.widgets.wheel_ignoring_combo import WheelIgnoringComboBox
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +214,7 @@ class CardGeneratorView(QWidget):
         template_label.setObjectName("formSectionTitle")
         form_vbox.addWidget(template_label)
 
-        self._template_combo = QComboBox()
+        self._template_combo = WheelIgnoringComboBox()
         self._template_combo.setObjectName("fieldInput")
         self._template_combo.addItem("-- Select Template --", 0)
         form_vbox.addWidget(self._template_combo)

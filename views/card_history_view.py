@@ -43,6 +43,7 @@ from controllers.template_controller import TemplateController
 from models.card import GeneratedCard
 from services.render_service import RenderService
 from views.widgets.card_preview_panel import PreviewPanel
+from views.widgets.wheel_ignoring_combo import WheelIgnoringComboBox
 
 # ------------------------------------------------------------------
 # Helpers
@@ -489,7 +490,7 @@ class CardHistoryView(QWidget):
         tpl_label.setObjectName("filterLabel")
         layout.addWidget(tpl_label)
 
-        self._template_filter: QComboBox = QComboBox()
+        self._template_filter: QComboBox = WheelIgnoringComboBox()
         self._template_filter.setObjectName("historyTemplateFilter")
         self._template_filter.setMinimumWidth(180)
         self._template_filter.currentIndexChanged.connect(

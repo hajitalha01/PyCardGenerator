@@ -21,6 +21,7 @@ from config.constants import (
     CARD_HEIGHT_PX,
     CARD_WIDTH_MM,
     CARD_WIDTH_PX,
+    PREVIEW_DPI,
 )
 from fields.field_type import FieldType
 from models.field import TemplateField
@@ -51,12 +52,12 @@ class PreviewRenderer:
         canvas.set_pixmap(pixmap)
     """
 
-    def __init__(self, dpi: int = 150) -> None:
+    def __init__(self, dpi: int = PREVIEW_DPI) -> None:
         """Initialise the preview renderer.
 
         Args:
-            dpi: Output resolution in dots per inch.  Half of the
-                production DPI (300) yields 4× fewer pixels per card
+            dpi: Output resolution in dots per inch.  A quarter of the
+                export DPI (600) yields 16× fewer pixels per card
                 side, keeping preview updates fast.
         """
         self._dpi: int = dpi

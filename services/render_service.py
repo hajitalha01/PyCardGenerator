@@ -17,6 +17,7 @@ from config.constants import (
     CARD_HEIGHT_PX,
     CARD_WIDTH_MM,
     CARD_WIDTH_PX,
+    EXPORT_DPI,
 )
 from config.settings import GENERATED_CARDS_DIR
 from fields.field_type import FieldType
@@ -41,8 +42,8 @@ class RenderService:
     """Orchestrates the card rendering pipeline.
 
     Accepts a template, a sorted list of fields, user-supplied
-    values, and an optional photo.  Produces a high-resolution
-    (300 DPI by default) RGBA PNG image for each card side.
+    values, and an optional photo.      Produces a high-resolution
+    (600 DPI by default) RGBA PNG image for each card side.
 
     Typical usage::
 
@@ -56,7 +57,7 @@ class RenderService:
         )
     """
 
-    def __init__(self, dpi: int = 300) -> None:
+    def __init__(self, dpi: int = EXPORT_DPI) -> None:
         """Initialise the render service.
 
         Args:
@@ -331,7 +332,7 @@ class RenderService:
                 GENERATED_CARDS_DIR / generate_filename(prefix, ".png")
             )
 
-        self._image_renderer.save_image(canvas, output_path)
+        self._image_renderer.save_image(canvas, output_path, self._dpi)
         logger.info("Saved %s card image: %s", side, output_path)
         return output_path
 

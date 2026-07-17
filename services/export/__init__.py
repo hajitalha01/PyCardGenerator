@@ -1,7 +1,7 @@
 """Export services for card image and PDF generation.
 
 Provides the full export pipeline: validation, high-resolution
-rendering (300 DPI), image format conversion, PDF assembly, and
+rendering (600 DPI), image format conversion, PDF assembly, and
 human-readable filename generation.
 """
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -113,13 +114,19 @@ def render_repeating_table(
 
 
 def _get_font(size: int = _FONT_SIZE) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    try:
-        return ImageFont.truetype("arial.ttf", size)
-    except (OSError, IOError):
-        try:
-            return ImageFont.truetype("C:\\Windows\\Fonts\\arial.ttf", size)
-        except (OSError, IOError):
-            return ImageFont.load_default()
+    dirs: tuple[str, ...] = (
+        r"C:\Windows\Fonts",
+        r"C:\Windows\WinSxS\amd64_microsoft-windows-f..onecore-fonts_31bf3856ad364e35_10.0.26100.1_none_eca354117831f639",
+    )
+    for directory in dirs:
+        for name in ("arial.ttf", "Arial.ttf"):
+            full = Path(directory) / name
+            if full.is_file():
+                try:
+                    return ImageFont.truetype(str(full), size)
+                except OSError:
+                    pass
+    return ImageFont.load_default()
 
 
 def _calc_col_widths(table_w: int) -> list[int]:
@@ -148,12 +155,20 @@ def render_dependents_table(
     if w <= 0 or h <= 0:
         return
 
-    font = _get_font(_FONT_SIZE)
-    header_font = _get_font(_HEADER_FONT_SIZE)
+    # Scale font sizes to match the current DPI
+    dpi: float = px_per_mm * 25.4
+    scale: float = dpi / 72.0
+    scaled_font_size: int = max(1, round(_FONT_SIZE * scale))
+    scaled_header_font_size: int = max(1, round(_HEADER_FONT_SIZE * scale))
 
+    font = _get_font(scaled_font_size)
+    header_font = _get_font(scaled_header_font_size)
+
+    # Proportional padding
+    padding: int = max(2, round(_PADDING * scale))
     col_widths: list[int] = _calc_col_widths(w)
-    line_h: int = font.getbbox("Ag")[3] + _PADDING * 2 + 2
-    header_h: int = header_font.getbbox("Ag")[3] + _PADDING * 2 + 2
+    line_h: int = font.getbbox("Ag")[3] + padding * 2 + 2
+    header_h: int = header_font.getbbox("Ag")[3] + padding * 2 + 2
 
     max_rows: int = max(0, (h - header_h) // line_h)
     visible_deps: list[dict] = dependents[:max_rows]
@@ -168,7 +183,7 @@ def render_dependents_table(
         draw.rectangle([cx, cy, cx + cw, cy + header_h], fill=_HEADER_BG)
         draw.rectangle([cx, cy, cx + cw, cy + header_h], outline=_LINE_COLOR)
         draw.text(
-            (cx + _PADDING, cy + _PADDING),
+            (cx + padding, cy + padding),
             header,
             font=header_font,
             fill=_TEXT_COLOR,
@@ -191,7 +206,7 @@ def render_dependents_table(
             cw = col_widths[ci]
             draw.rectangle([cx, cy, cx + cw, cy + line_h], outline=_LINE_COLOR)
             draw.text(
-                (cx + _PADDING, cy + _PADDING),
+                (cx + padding, cy + padding),
                 cell_text,
                 font=font,
                 fill=_TEXT_COLOR,

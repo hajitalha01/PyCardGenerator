@@ -210,32 +210,40 @@ def _auto_resize_font(
 ) -> tuple[int, ImageFont.FreeTypeFont]:
     """Reduce font size until the text fits the given rectangle.
 
+    Uses binary search for efficiency at any DPI scale.
+
     Args:
         text: The text to measure.
         font_family: Font family name.
         bold: Apply bold weight.
         italic: Apply italic slant.
-        start_size: Initial font size in points.
+        start_size: Initial font size (pixels at target DPI).
         max_width: Maximum allowed width in pixels.
         max_height: Maximum allowed height in pixels.
 
     Returns:
         ``(final_size, font)`` that fits the rectangle.
     """
-    size: int = start_size
-    font: ImageFont.FreeTypeFont = _get_font(font_family, size, bold, italic)
+    lo: int = 4
+    hi: int = max(lo, start_size)
+    best: int = lo
+    best_font: ImageFont.FreeTypeFont = _get_font(font_family, lo, bold, italic)
 
-    while size > 4:
+    while lo <= hi:
+        mid: int = (lo + hi) // 2
+        font: ImageFont.FreeTypeFont = _get_font(font_family, mid, bold, italic)
         lines: list[str] = _word_wrap(text, font, max_width)
         tw: int
         th: int
         tw, th = _measure_lines(lines, font)
         if tw <= max_width and th <= max_height:
-            return size, font
-        size -= 1
-        font = _get_font(font_family, size, bold, italic)
+            best = mid
+            best_font = font
+            lo = mid + 1
+        else:
+            hi = mid - 1
 
-    return size, font
+    return best, best_font
 
 
 # ------------------------------------------------------------------
@@ -285,28 +293,37 @@ def render_text(
         bg_draw.rectangle([x, y, x + w, y + h], fill=(*bg_rgb, bg_opacity))
         canvas.alpha_composite(bg_layer)
 
+    # --- Scale font size from points to pixels at this DPI ---
+    # Pillow's truetype() treats size as points but renders at 72 DPI
+    # so we must scale:  font_pixels = font_points * dpi / 72
+    dpi: float = px_per_mm * 25.4
+    scaled_font_size: int = max(1, round(field.font_size * dpi / 72.0))
+
     # --- Font ---
     font: ImageFont.FreeTypeFont = _get_font(
         field.font_family,
-        field.font_size,
+        scaled_font_size,
         field.bold,
         field.italic,
     )
 
-    # --- Auto-resize ---
+    # Proportional padding — scales with DPI (~0.34 mm per side)
+    padding: int = max(3, round(0.34 * px_per_mm))
+
+    # --- Auto-resize (uses scaled pixel sizes for both font and field) ---
     font_size: int
     font_size, font = _auto_resize_font(
         text,
         field.font_family,
         field.bold,
         field.italic,
-        field.font_size,
-        w - 8,   # 4 px padding each side
-        h - 8,
+        scaled_font_size,
+        w - 2 * padding,
+        h - 2 * padding,
     )
 
     # --- Word wrap ---
-    lines: list[str] = _word_wrap(text, font, w - 8)
+    lines: list[str] = _word_wrap(text, font, w - 2 * padding)
 
     # --- Measure ---
     line_h: int = font.getbbox("Ag")[3] + 2
@@ -329,9 +346,9 @@ def render_text(
         if align == "center":
             lx: int = x + (w - line_w) // 2
         elif align == "right":
-            lx: int = x + w - line_w - 4
+            lx: int = x + w - line_w - padding
         else:
-            lx = x + 4  # left
+            lx = x + padding  # left
 
         if line:
             text_draw.text(
@@ -351,9 +368,9 @@ def render_text(
             if align == "center":
                 lx = x + (w - line_w) // 2
             elif align == "right":
-                lx = x + w - line_w - 4
+                lx = x + w - line_w - padding
             else:
-                lx = x + 4
+                lx = x + padding
 
             underline_y: int = y_offset + line_h - 2
             text_draw.line(

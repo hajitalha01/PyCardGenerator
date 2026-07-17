@@ -1,14 +1,14 @@
 """High-resolution image export.
 
-Wraps ``RenderService`` at 300 DPI to produce PNG or JPEG card
-images.  The output format is determined by the file extension
-of the requested output path — ``.jpg`` / ``.jpeg`` produces
-JPEG, everything else produces PNG.
+Wraps ``RenderService`` at the configured DPI (default 600) to
+produce PNG or JPEG card images.  The output format is determined
+by the file extension of the requested output path — ``.jpg`` /
+``.jpeg`` produces JPEG, everything else produces PNG.
 """
 
 from __future__ import annotations
 
-from config.constants import CARD_DPI
+from config.constants import EXPORT_DPI
 from models.field import TemplateField
 from models.template import CardTemplate
 from services.render_service import RenderService
@@ -19,15 +19,20 @@ class ImageExporter:
 
     Typical usage::
 
-        exporter = ImageExporter()
+        exporter = ImageExporter(dpi=600)
         path = exporter.export_front(
             template, fields, field_data, photo_path, "output.png"
         )
     """
 
-    def __init__(self) -> None:
-        """Initialise the exporter with a 300 DPI render service."""
-        self._render_service: RenderService = RenderService(dpi=CARD_DPI)
+    def __init__(self, dpi: int = EXPORT_DPI) -> None:
+        """Initialise the exporter with the requested render DPI.
+
+        Args:
+            dpi: Output resolution in dots per inch (default 600).
+        """
+        self._dpi: int = dpi
+        self._render_service: RenderService = RenderService(dpi=dpi)
 
     # ------------------------------------------------------------------
     # Public API

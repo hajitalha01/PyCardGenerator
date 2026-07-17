@@ -28,7 +28,13 @@ CARD_WIDTH_MM: float = 85.6
 CARD_HEIGHT_MM: float = 54.0
 CARD_WIDTH_PX: int = 600
 CARD_HEIGHT_PX: int = 379
-CARD_DPI: int = 300
+
+# ------------------------------------------------------------------
+# Rendering resolution
+# ------------------------------------------------------------------
+CARD_DPI: int = 300        # Base DPI for editor scene calculations
+PREVIEW_DPI: int = 150     # Live preview (fast, lightweight)
+EXPORT_DPI: int = 600      # Export / print (professional quality)
 
 # ------------------------------------------------------------------
 # Supported file types

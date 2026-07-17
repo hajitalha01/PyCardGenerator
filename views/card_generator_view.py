@@ -100,15 +100,16 @@ class CardGeneratorView(QWidget):
         self._form_binder: FormBinder = FormBinder(self._binding_manager)
         self._bind_form_widgets()
 
-        # Preview engine — consumes data model signals
+            # Preview engine — consumes data model signals
         self._preview_manager: PreviewManager = PreviewManager(
             self._front_preview, self._back_preview
         )
         self._preview_manager.connect_binding_manager(self._binding_manager)
 
-        # Export engine
+        # Export engine — high-resolution at EXPORT_DPI
+        from config.constants import EXPORT_DPI  # noqa: PLC0415
         self._export_manager: ExportManager = ExportManager(
-            self._binding_manager, TemplateController()
+            self._binding_manager, TemplateController(), dpi=EXPORT_DPI
         )
         self._wire_download_buttons()
 
@@ -653,6 +654,10 @@ class CardGeneratorView(QWidget):
         self._info_card: QLabel = QLabel("Card: 85.6 × 54.0 mm")
         self._info_card.setObjectName("infoLabel")
         b_layout.addWidget(self._info_card)
+
+        self._info_dpi: QLabel = QLabel("Export DPI: 600")
+        self._info_dpi.setObjectName("infoLabel")
+        b_layout.addWidget(self._info_dpi)
 
         self._info_status: QLabel = QLabel("Status: Idle")
         self._info_status.setObjectName("infoLabel")

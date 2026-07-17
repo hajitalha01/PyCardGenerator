@@ -72,11 +72,11 @@ class PhotoRenderer:
         # Scale to fill the field (maintaining aspect ratio, cropping)
         processed: Image.Image = PhotoRenderer._fill(photo, w, h)
 
-        # Apply rounded corners
+        # Apply rounded corners (~8 mm radius scaled to DPI)
         radius: int = max(1, round(8 * px_per_mm / 11.811))  # ~8 mm radius
         processed = PhotoRenderer._rounded_corners(processed, radius)
 
-        # Apply border
+        # Apply border (~1 mm scaled to DPI)
         border_w: int = max(0, round(1 * px_per_mm / 11.811))  # ~1 mm
         if border_w > 0:
             processed = PhotoRenderer._add_border(

@@ -21,10 +21,15 @@ class PDFExporter:
         )
     """
 
-    def __init__(self) -> None:
-        """Initialise with the ID-1 card page size."""
+    def __init__(self, dpi: int = 600) -> None:
+        """Initialise with the ID-1 card page size.
+
+        Args:
+            dpi: Output resolution for embedded images.
+        """
         self._width_mm: float = CARD_WIDTH_MM
         self._height_mm: float = CARD_HEIGHT_MM
+        self._dpi: int = dpi
 
     # ------------------------------------------------------------------
     # Public API

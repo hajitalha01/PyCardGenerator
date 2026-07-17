@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from config.constants import EXPORT_DPI
 from config.settings import GENERATED_CARDS_DIR
 from controllers.binding_manager import BindingManager
 from controllers.template_controller import TemplateController
@@ -35,7 +36,7 @@ class ExportManager:
 
     Usage::
 
-        mgr = ExportManager(binding_manager, template_controller)
+        mgr = ExportManager(binding_manager, template_controller, dpi=600)
         path = mgr.export_front("/out/John_Front.png")
     """
 
@@ -43,6 +44,7 @@ class ExportManager:
         self,
         binding_manager: BindingManager,
         template_controller: TemplateController,
+        dpi: int = EXPORT_DPI,
     ) -> None:
         """Initialise the export manager.
 
@@ -51,10 +53,12 @@ class ExportManager:
                 and photo path via ``.model``.
             template_controller: Template repository for loading
                 ``CardTemplate`` and ``TemplateField`` objects.
+            dpi: Output resolution in dots per inch (default 600).
         """
+        self._dpi: int = dpi
         self._binding_manager: BindingManager = binding_manager
         self._template_ctrl: TemplateController = template_controller
-        self._image_exporter: ImageExporter = ImageExporter()
+        self._image_exporter: ImageExporter = ImageExporter(dpi=dpi)
         self._pdf_exporter: PDFExporter = PDFExporter()
 
     # ------------------------------------------------------------------
@@ -87,7 +91,7 @@ class ExportManager:
         template, fields = self._load_template_data()
 
         logger.info(
-            "Exporting front card to %s", output_path
+            "Exporting front card to %s (DPI=%d)", output_path, self._dpi
         )
         return self._image_exporter.export_front(
             template=template,
@@ -123,7 +127,7 @@ class ExportManager:
         fields: list[TemplateField]
         template, fields = self._load_template_data()
 
-        logger.info("Exporting back card to %s", output_path)
+        logger.info("Exporting back card to %s (DPI=%d)", output_path, self._dpi)
         return self._image_exporter.export_back(
             template=template,
             fields=fields,

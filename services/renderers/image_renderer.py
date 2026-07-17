@@ -175,13 +175,14 @@ class ImageRenderer:
 
     @staticmethod
     def save_image(
-        image: Image.Image, output_path: str, quality: int = 95
+        image: Image.Image, output_path: str, dpi: int = 600, quality: int = 95
     ) -> str:
-        """Save an RGBA image to disk as PNG.
+        """Save an RGBA image to disk with DPI metadata.
 
         Args:
             image: The image to save.
             output_path: Destination file path.
+            dpi: DPI metadata to embed in the image header.
             quality: JPEG quality (used only for JPEG output).
 
         Returns:
@@ -190,8 +191,8 @@ class ImageRenderer:
         ext: str = Path(output_path).suffix.lower()
         if ext in (".jpg", ".jpeg"):
             image = image.convert("RGB")
-            image.save(output_path, quality=quality)
+            image.save(output_path, quality=quality, dpi=(dpi, dpi))
         else:
-            image.save(output_path)
-        logger.debug("Saved image: %s", output_path)
+            image.save(output_path, dpi=(dpi, dpi))
+        logger.debug("Saved image: %s (DPI=%d)", output_path, dpi)
         return output_path

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, QTimer
 
+from config.constants import PREVIEW_DPI
 from controllers.template_controller import TemplateController
 from models.field import TemplateField
 from models.template import CardTemplate
@@ -54,7 +55,7 @@ class PreviewManager(QObject):
         self._front_canvas = front_canvas
         self._back_canvas = back_canvas
         self._template_ctrl: TemplateController = TemplateController()
-        self._renderer: PreviewRenderer = PreviewRenderer(dpi=150)
+        self._renderer: PreviewRenderer = PreviewRenderer(dpi=PREVIEW_DPI)
         self._cache: PreviewCache = PreviewCache()
 
         # Debounce timer — prevents re-rendering on every keystroke.

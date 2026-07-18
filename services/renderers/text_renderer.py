@@ -14,6 +14,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from config.constants import EDITOR_FONT_DPI, EDITOR_PX_PER_MM
 from models.field import TemplateField
 from utils.logger import setup_logger
 
@@ -319,11 +320,11 @@ def render_text(
         bg_draw.rectangle([x, y, x + w, y + h], fill=(*bg_rgb, bg_opacity))
         canvas.alpha_composite(bg_layer)
 
-    # --- Scale font size from points to pixels at this DPI ---
-    # Pillow's truetype() treats size as points but renders at 72 DPI
-    # so we must scale:  font_pixels = font_points * dpi / 72
-    dpi: float = px_per_mm * 25.4
-    scaled_font_size: int = max(1, round(field.font_size * dpi / 72.0))
+    # --- Scale font size to match the editor's Qt rendering ---
+    # Qt uses logical 96 DPI for point→pixel. We scale proportionally
+    # to whatever canvas resolution is being used.
+    scale_factor: float = px_per_mm / EDITOR_PX_PER_MM
+    scaled_font_size: int = max(1, round(field.font_size * EDITOR_FONT_DPI / 72.0 * scale_factor))
 
     # --- Font ---
     font: ImageFont.FreeTypeFont = _get_font(
@@ -333,26 +334,16 @@ def render_text(
         field.italic,
     )
 
-    # Proportional padding — scales with DPI (~0.34 mm per side)
-    padding: int = max(3, round(0.34 * px_per_mm))
-
-    # --- Auto-resize (uses scaled pixel sizes for both font and field) ---
-    font_size: int
-    font_size, font = _auto_resize_font(
-        text,
-        field.font_family,
-        field.bold,
-        field.italic,
-        scaled_font_size,
-        w - 2 * padding,
-        h - 2 * padding,
-    )
+    # Padding matching the editor's hardcoded insets (6px h, 4px v)
+    padding_h: int = max(1, round(6 * scale_factor))
+    padding_v: int = max(1, round(4 * scale_factor))
 
     # --- Word wrap ---
-    lines: list[str] = _word_wrap(text, font, w - 2 * padding)
+    lines: list[str] = _word_wrap(text, font, w - 2 * padding_h)
 
-    # --- Measure ---
-    line_h: int = font.getbbox("Ag")[3] + 2
+    # --- Measure (full glyph height, not just descender) ---
+    _bbox = font.getbbox("Ag")
+    line_h: int = (_bbox[3] - _bbox[1]) + 2
     text_h: int = len(lines) * line_h
 
     # --- Alignment and vertical centring ---
@@ -372,9 +363,9 @@ def render_text(
         if align == "center":
             lx: int = x + (w - line_w) // 2
         elif align == "right":
-            lx: int = x + w - line_w - padding
+            lx: int = x + w - line_w - padding_h
         else:
-            lx = x + padding  # left
+            lx = x + padding_h
 
         if line:
             text_draw.text(
@@ -394,15 +385,15 @@ def render_text(
             if align == "center":
                 lx = x + (w - line_w) // 2
             elif align == "right":
-                lx = x + w - line_w - padding
+                lx = x + w - line_w - padding_h
             else:
-                lx = x + padding
+                lx = x + padding_h
 
             underline_y: int = y_offset + line_h - 2
             text_draw.line(
                 [(lx, underline_y), (lx + line_w, underline_y)],
                 fill=(*text_color, opacity_scale),
-                width=max(1, round(font_size / 12)),
+                width=max(1, round(scaled_font_size / 12)),
             )
             y_offset += line_h
 

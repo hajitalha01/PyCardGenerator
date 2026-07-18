@@ -21,6 +21,7 @@ from config.constants import (
     CARD_HEIGHT_PX,
     CARD_WIDTH_MM,
     CARD_WIDTH_PX,
+    EDITOR_PX_PER_MM,
     PREVIEW_DPI,
 )
 from fields.field_type import FieldType
@@ -70,8 +71,8 @@ class PreviewRenderer:
 
     @property
     def px_per_mm(self) -> float:
-        """Pixels-per-millimetre for the configured DPI."""
-        return self._dpi / 25.4
+        """Pixels-per-millimetre matching the editor canvas."""
+        return EDITOR_PX_PER_MM
 
     def _mm_to_px(self, mm: float) -> int:
         """Convert a millimetre value to pixels at the current DPI.
@@ -89,16 +90,16 @@ class PreviewRenderer:
     ) -> tuple[int, int]:
         """Compute the output canvas size in pixels.
 
+        Uses the editor's native resolution so the preview is a
+        pixel-perfect match of the Template Editor canvas.
+
         Args:
             template: The card template defining physical dimensions.
 
         Returns:
             ``(width, height)`` in pixels.
         """
-        return (
-            self._mm_to_px(template.canvas_width),
-            self._mm_to_px(template.canvas_height),
-        )
+        return (CARD_WIDTH_PX, CARD_HEIGHT_PX)
 
     # ------------------------------------------------------------------
     # Public API

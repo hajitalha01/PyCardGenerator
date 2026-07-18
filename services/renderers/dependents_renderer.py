@@ -5,6 +5,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
+from config.constants import EDITOR_FONT_DPI, EDITOR_PX_PER_MM
 from models.field import TemplateField
 from services.renderers.text_renderer import TextRenderer
 
@@ -155,17 +156,16 @@ def render_dependents_table(
     if w <= 0 or h <= 0:
         return
 
-    # Scale font sizes to match the current DPI
-    dpi: float = px_per_mm * 25.4
-    scale: float = dpi / 72.0
+    # Scale font sizes to match the editor's Qt rendering
+    scale: float = (EDITOR_FONT_DPI / 72.0) * (px_per_mm / EDITOR_PX_PER_MM)
     scaled_font_size: int = max(1, round(_FONT_SIZE * scale))
     scaled_header_font_size: int = max(1, round(_HEADER_FONT_SIZE * scale))
 
     font = _get_font(scaled_font_size)
     header_font = _get_font(scaled_header_font_size)
 
-    # Proportional padding
-    padding: int = max(2, round(_PADDING * scale))
+    # Padding matching the editor's proportional scaling
+    padding: int = max(2, round(_PADDING * (px_per_mm / EDITOR_PX_PER_MM)))
     col_widths: list[int] = _calc_col_widths(w)
     line_h: int = font.getbbox("Ag")[3] + padding * 2 + 2
     header_h: int = header_font.getbbox("Ag")[3] + padding * 2 + 2

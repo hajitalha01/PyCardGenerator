@@ -31,6 +31,12 @@ CARD_WIDTH_PX: int = 600
 CARD_HEIGHT_PX: int = 379
 
 # ------------------------------------------------------------------
+# Editor reference values (used for font/position scaling in renderers)
+# ------------------------------------------------------------------
+EDITOR_PX_PER_MM: float = CARD_WIDTH_PX / CARD_WIDTH_MM   # ≈7.009
+EDITOR_FONT_DPI: float = 96.0  # Qt logical DPI for point→pixel conversion
+
+# ------------------------------------------------------------------
 # Rendering resolution
 # ------------------------------------------------------------------
 CARD_DPI: int = 300        # Base DPI for editor scene calculations

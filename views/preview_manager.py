@@ -185,8 +185,8 @@ class PreviewManager(QObject):
         photo_path: str | None = model.photo_path or None
         dependents: list[dict] = model.dependents
 
+        # --- Front side ---
         try:
-            # --- Front side ---
             front_img = self._renderer.render_front(
                 template=self._template,
                 fields=self._fields,
@@ -198,8 +198,11 @@ class PreviewManager(QObject):
             self._front_canvas.set_pixmap(
                 PreviewRenderer.image_to_qpixmap(front_img)
             )
+        except Exception:  # noqa: BLE001
+            logger.exception("Front preview update failed")
 
-            # --- Back side ---
+        # --- Back side ---
+        try:
             back_img = self._renderer.render_back(
                 template=self._template,
                 fields=self._fields,
@@ -211,6 +214,5 @@ class PreviewManager(QObject):
             self._back_canvas.set_pixmap(
                 PreviewRenderer.image_to_qpixmap(back_img)
             )
-
         except Exception:  # noqa: BLE001
-            logger.exception("Preview update failed")
+            logger.exception("Back preview update failed")

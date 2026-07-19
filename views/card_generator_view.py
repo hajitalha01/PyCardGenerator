@@ -1139,7 +1139,7 @@ class CardGeneratorView(QWidget):
         Args:
             mode: ``"front"``, ``"back"``, or ``"combined"``.
         """
-        errors: list[str] = self._validate_form()
+        errors: list[str] = self._validate_form(mode)
         if errors:
             QMessageBox.warning(
                 self,
@@ -1223,12 +1223,15 @@ class CardGeneratorView(QWidget):
     # Validation
     # ------------------------------------------------------------------
 
-    def _validate_form(self) -> list[str]:
+    def _validate_form(self, mode: str = "combined") -> list[str]:
         """Check that all required fields are filled before export.
 
-        Validates all front fields plus template and photo regardless
-        of which side is currently active, since export needs data
-        from both sides.
+        Validates fields according to *mode* so that Front-only,
+        Back-only and combined exports each check only the relevant
+        fields.
+
+        Args:
+            mode: ``"front"``, ``"back"``, or ``"combined"``.
 
         Returns:
             A list of user-friendly error messages (empty = valid).
@@ -1236,31 +1239,34 @@ class CardGeneratorView(QWidget):
         errors: list[str] = []
         self._clear_field_highlights()
 
-        if not self._name_input.text().strip():
-            errors.append("Employee Name is required")
-            self._highlight_field(self._name_input)
-
-        if not self._designation_input.text().strip():
-            errors.append("Employee Designation is required")
-            self._highlight_field(self._designation_input)
-
-        if not self._emp_no_input.text().strip():
-            errors.append("Employee No is required")
-            self._highlight_field(self._emp_no_input)
-
-        if not self._category_input.text().strip():
-            errors.append("Employee Category is required")
-            self._highlight_field(self._category_input)
-
-        if not self._location_input.text().strip():
-            errors.append("Location is required")
-            self._highlight_field(self._location_input)
-
+        # Template is always required
         if self._template_combo.currentIndex() <= 0:
             errors.append("Please select a template")
 
-        if not self._photo_path:
-            errors.append("Please select a photo")
+        # Front-specific validation
+        if mode in ("front", "combined"):
+            if not self._name_input.text().strip():
+                errors.append("Employee Name is required")
+                self._highlight_field(self._name_input)
+
+            if not self._designation_input.text().strip():
+                errors.append("Employee Designation is required")
+                self._highlight_field(self._designation_input)
+
+            if not self._emp_no_input.text().strip():
+                errors.append("Employee No is required")
+                self._highlight_field(self._emp_no_input)
+
+            if not self._category_input.text().strip():
+                errors.append("Employee Category is required")
+                self._highlight_field(self._category_input)
+
+            if not self._location_input.text().strip():
+                errors.append("Location is required")
+                self._highlight_field(self._location_input)
+
+            if not self._photo_path:
+                errors.append("Please select a photo")
 
         if errors:
             self._info_status.setText("Status: Validation Failed")

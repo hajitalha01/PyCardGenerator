@@ -1,3 +1,4 @@
+
 """Template editor view.
 
 Provides a full-screen editing workspace similar to professional
@@ -15,18 +16,16 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QColorDialog,
-    QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressDialog,
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QSpinBox,
     QSplitter,
     QStyle,
     QVBoxLayout,
@@ -41,6 +40,11 @@ from config.constants import (
 )
 from config.settings import resolve_template_image
 from controllers.template_controller import TemplateController
+from views.widgets.wheel_ignoring_combo import (
+    WheelIgnoringComboBox,
+    WheelIgnoringDoubleSpinBox,
+    WheelIgnoringSpinBox,
+)
 from models.template import CardTemplate
 from utils.logger import setup_logger
 from views.widgets.editor_canvas import EditorCanvas
@@ -274,7 +278,7 @@ class TemplateEditorView(QWidget):
         self._editor_name_input.setPlaceholderText("Enter template name")
         layout.addWidget(self._editor_name_input)
 
-        self._editor_card_side: QComboBox = QComboBox()
+        self._editor_card_side: WheelIgnoringComboBox = WheelIgnoringComboBox()
         self._editor_card_side.setObjectName("fieldInput")
         self._editor_card_side.addItems(["Front", "Back"])
         layout.addWidget(self._make_field_row("Card Side:", self._editor_card_side))
@@ -287,7 +291,7 @@ class TemplateEditorView(QWidget):
         form.setContentsMargins(0, 0, 0, 0)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
 
-        self._width_spin: QDoubleSpinBox = QDoubleSpinBox()
+        self._width_spin: WheelIgnoringDoubleSpinBox = WheelIgnoringDoubleSpinBox()
         self._width_spin.setObjectName("fieldInput")
         self._width_spin.setRange(10.0, 200.0)
         self._width_spin.setValue(CARD_WIDTH_MM)
@@ -295,7 +299,7 @@ class TemplateEditorView(QWidget):
         self._width_spin.setEnabled(False)
         form.addRow("Card Width:", self._width_spin)
 
-        self._height_spin: QDoubleSpinBox = QDoubleSpinBox()
+        self._height_spin: WheelIgnoringDoubleSpinBox = WheelIgnoringDoubleSpinBox()
         self._height_spin.setObjectName("fieldInput")
         self._height_spin.setRange(10.0, 150.0)
         self._height_spin.setValue(CARD_HEIGHT_MM)
@@ -323,20 +327,20 @@ class TemplateEditorView(QWidget):
         # --- Grid section ---
         layout.addWidget(self._make_section_title("Grid"))
 
-        self._grid_spin: QSpinBox = QSpinBox()
+        self._grid_spin: WheelIgnoringSpinBox = WheelIgnoringSpinBox()
         self._grid_spin.setObjectName("fieldInput")
         self._grid_spin.setRange(1, 100)
         self._grid_spin.setValue(10)
         self._grid_spin.setSuffix(" px")
         layout.addWidget(self._make_field_row("Grid Size:", self._grid_spin))
 
-        self._zoom_spin: QSpinBox = QSpinBox()
+        self._zoom_spin: WheelIgnoringSpinBox = WheelIgnoringSpinBox()
         self._zoom_spin.setObjectName("fieldInput")
         self._zoom_spin.setRange(10, 800)
         self._zoom_spin.setValue(100)
         self._zoom_spin.setSuffix(" %")
         self._zoom_spin.setReadOnly(True)
-        self._zoom_spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self._zoom_spin.setButtonSymbols(WheelIgnoringSpinBox.ButtonSymbols.NoButtons)
         layout.addWidget(self._make_field_row("Zoom:", self._zoom_spin))
 
         self._snap_check: QCheckBox = QCheckBox("Snap to Grid")
@@ -556,7 +560,7 @@ class TemplateEditorView(QWidget):
         layout.addWidget(self._make_section_title("Text Formatting"))
 
         # Font Family
-        self._text_font_family: QComboBox = QComboBox()
+        self._text_font_family: WheelIgnoringComboBox = WheelIgnoringComboBox()
         self._text_font_family.setObjectName("fieldInput")
         self._text_font_family.addItems([
             "Arial", "Calibri", "Times New Roman", "Verdana",
@@ -566,7 +570,7 @@ class TemplateEditorView(QWidget):
         layout.addWidget(self._make_field_row("Font:", self._text_font_family))
 
         # Font Size
-        self._text_font_size: QSpinBox = QSpinBox()
+        self._text_font_size: WheelIgnoringSpinBox = WheelIgnoringSpinBox()
         self._text_font_size.setObjectName("fieldInput")
         self._text_font_size.setRange(1, 200)
         self._text_font_size.setValue(12)
@@ -621,7 +625,7 @@ class TemplateEditorView(QWidget):
         layout.addWidget(color_row)
 
         # Alignment
-        self._text_alignment: QComboBox = QComboBox()
+        self._text_alignment: WheelIgnoringComboBox = WheelIgnoringComboBox()
         self._text_alignment.setObjectName("fieldInput")
         self._text_alignment.addItems(["Left", "Center", "Right"])
         layout.addWidget(self._make_field_row("Align:", self._text_alignment))

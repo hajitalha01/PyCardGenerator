@@ -19,7 +19,7 @@ class ExportValidator:
 
     Usage::
 
-        errors = ExportValidator.validate(binding_manager, template_controller)
+        errors = ExportValidator.validate(binding_manager, template_controller, side="front")
         if errors:
             raise ExportError("; ".join(errors))
     """
@@ -28,6 +28,7 @@ class ExportValidator:
     def validate(
         binding_manager: BindingManager,
         template_controller: TemplateController,
+        side: str = "combined",
     ) -> list[str]:
         """Check all export prerequisites and return a list of errors.
 
@@ -36,6 +37,8 @@ class ExportValidator:
                 the current form state.
             template_controller: Used to load template metadata
                 from the database.
+            side: ``"front"``, ``"back"``, or ``"combined"``.
+                Controls which fields are validated.
 
         Returns:
             A (possibly empty) list of human-readable error
@@ -58,19 +61,33 @@ class ExportValidator:
             )
             return errors
 
-        # --- Required field values ---
+        # --- Required field values (filtered by side) ---
+        all_fields: list[TemplateField] = template_controller.load_all_layout(tid)
         for field_name, err_msg in model.validate():
+            # Match the field name against loaded template fields to
+            # determine which side it belongs to.
+            tf: TemplateField | None = next(
+                (f for f in all_fields if f.field_name == field_name),
+                None,
+            )
+            if tf is not None:
+                if side == "front" and tf.page_side != "front":
+                    continue
+                if side == "back" and tf.page_side != "back":
+                    continue
+            # "combined" (and unknown fields) are always checked
             errors.append(err_msg)
 
         # --- Photo required when template has a PHOTO field ---
-        fields: list[TemplateField] = template_controller.load_all_layout(tid)
-        has_photo_field: bool = any(
-            f.field_type == "photo" and f.visible
-            for f in fields
-        )
-        if has_photo_field and not model.photo_path:
-            errors.append(
-                "A photo is required but none has been selected."
+        # (skipped for back-only export)
+        if side != "back":
+            has_photo_field: bool = any(
+                f.field_type == "photo" and f.visible
+                for f in all_fields
             )
+            if has_photo_field and not model.photo_path:
+                errors.append(
+                    "A photo is required but none has been selected."
+                )
 
         return errors

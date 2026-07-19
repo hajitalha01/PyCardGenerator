@@ -19,7 +19,7 @@ from config.constants import (
     CARD_WIDTH_PX,
     EXPORT_DPI,
 )
-from config.settings import GENERATED_CARDS_DIR
+from config.settings import GENERATED_CARDS_DIR, resolve_template_image
 from fields.field_type import FieldType
 from models.card import GeneratedCard
 from models.field import TemplateField
@@ -239,7 +239,7 @@ class RenderService:
         margin_mm_y: float = 60.0 * CARD_HEIGHT_MM / CARD_HEIGHT_PX  # ≈ 8.55
 
         # -- Step 1: Background --
-        bg_path: str | None = (
+        bg_path: str | None = resolve_template_image(
             template.front_image if side == "front" else template.back_image
         )
         bg_pos_x: float = max(

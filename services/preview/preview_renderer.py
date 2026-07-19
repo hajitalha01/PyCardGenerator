@@ -24,6 +24,7 @@ from config.constants import (
     EDITOR_PX_PER_MM,
     PREVIEW_DPI,
 )
+from config.settings import resolve_template_image
 from fields.field_type import FieldType
 from models.field import TemplateField
 from models.template import CardTemplate
@@ -249,7 +250,7 @@ class PreviewRenderer:
         margin_mm_y: float = 60.0 * CARD_HEIGHT_MM / CARD_HEIGHT_PX  # ≈ 8.55
 
         # -- Step 1: Background (with caching) --
-        bg_path: str | None = (
+        bg_path: str | None = resolve_template_image(
             template.front_image if side == "front" else template.back_image
         )
         bg_pos_x: float = max(

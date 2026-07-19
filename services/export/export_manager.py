@@ -80,7 +80,7 @@ class ExportManager:
             ExportError: If validation fails or rendering fails.
         """
         errors: list[str] = ExportValidator.validate(
-            self._binding_manager, self._template_ctrl
+            self._binding_manager, self._template_ctrl, side="front"
         )
         if errors:
             raise ExportError("\n".join(errors))
@@ -117,7 +117,7 @@ class ExportManager:
             ExportError: If validation fails or rendering fails.
         """
         errors: list[str] = ExportValidator.validate(
-            self._binding_manager, self._template_ctrl
+            self._binding_manager, self._template_ctrl, side="back"
         )
         if errors:
             raise ExportError("\n".join(errors))
@@ -154,7 +154,7 @@ class ExportManager:
             ExportError: If validation fails or rendering fails.
         """
         errors: list[str] = ExportValidator.validate(
-            self._binding_manager, self._template_ctrl
+            self._binding_manager, self._template_ctrl, side="combined"
         )
         if errors:
             raise ExportError("\n".join(errors))

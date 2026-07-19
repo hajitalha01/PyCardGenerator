@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from config.constants import EXPORT_DPI
-from config.settings import GENERATED_CARDS_DIR
 from controllers.binding_manager import BindingManager
 from controllers.template_controller import TemplateController
 from models.field import TemplateField
@@ -165,8 +164,8 @@ class ExportManager:
         template, fields = self._load_template_data()
 
         # Render both sides to temporary PNG files
-        temp_dir = GENERATED_CARDS_DIR
-        temp_dir.mkdir(parents=True, exist_ok=True)
+        import tempfile
+        temp_dir = Path(tempfile.mkdtemp(prefix="card_export_"))
 
         front_png: str = str(
             temp_dir / generate_filename("_export_front_temp", ".png")

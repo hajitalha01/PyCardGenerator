@@ -115,18 +115,13 @@ def render_repeating_table(
 
 
 def _get_font(size: int = _FONT_SIZE) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    dirs: tuple[str, ...] = (
-        r"C:\Windows\Fonts",
-        r"C:\Windows\WinSxS\amd64_microsoft-windows-f..onecore-fonts_31bf3856ad364e35_10.0.26100.1_none_eca354117831f639",
-    )
-    for directory in dirs:
-        for name in ("arial.ttf", "Arial.ttf"):
-            full = Path(directory) / name
-            if full.is_file():
-                try:
-                    return ImageFont.truetype(str(full), size)
-                except OSError:
-                    pass
+    from services.renderers.text_renderer import _find_font_path  # noqa: PLC0415
+    path: str | None = _find_font_path("Arial")
+    if path:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            pass
     return ImageFont.load_default()
 
 

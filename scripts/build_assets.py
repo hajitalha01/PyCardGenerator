@@ -10,10 +10,13 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
-ICONS_DIR = ASSETS_DIR / "icons"
-FONTS_DIR = ASSETS_DIR / "fonts"
-TEMPLATES_DIR = ASSETS_DIR / "templates"
+from utils.resource_path import PathManager
+
+_pm = PathManager()
+ASSETS_DIR = _pm.assets_dir
+ICONS_DIR = _pm.icons_dir
+FONTS_DIR = _pm.fonts_dir
+TEMPLATES_DIR = _pm.templates_dir
 
 # ------------------------------------------------------------------
 # Icon generation

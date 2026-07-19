@@ -63,7 +63,7 @@ class CardDataModel:
         model = CardDataModel()
         model.load_template_fields(template_fields)
         model.set_value("employee_name", "John Doe")
-        model.set_photo(r"C:\\photos\\john.jpg")
+        model.set_photo("photos/john.jpg")
         model.set_template(1, "Employee Card")
 
         for name, err in model.validate():

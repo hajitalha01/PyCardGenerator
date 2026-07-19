@@ -2,7 +2,7 @@
 
 Centralized path resolution and configuration values for the
 entire application. All directory and file paths originate from
-the project root.
+the portable ``PathManager``.
 
 The ``ensure_directories()`` function should be called once at
 startup to guarantee that every required directory exists.
@@ -11,44 +11,46 @@ startup to guarantee that every required directory exists.
 import logging
 from pathlib import Path
 
+from utils.resource_path import PathManager
+
 logger = logging.getLogger(__name__)
 
-ROOT_DIR: Path = Path(__file__).resolve().parent.parent
+_pm: PathManager = PathManager()
+
+ROOT_DIR = _pm.root
 
 # ------------------------------------------------------------------
 # Assets
 # ------------------------------------------------------------------
-ASSETS_DIR: Path = ROOT_DIR / "assets"
-TEMPLATES_DIR: Path = ASSETS_DIR / "templates"
-ICONS_DIR: Path = ASSETS_DIR / "icons"
-FONTS_DIR: Path = ASSETS_DIR / "fonts"
+ASSETS_DIR = _pm.assets_dir
+TEMPLATES_DIR = _pm.templates_dir
+ICONS_DIR = _pm.icons_dir
+FONTS_DIR = _pm.fonts_dir
 
 # ------------------------------------------------------------------
 # Data directories
 # ------------------------------------------------------------------
-UPLOADS_DIR: Path = ROOT_DIR / "uploads"
-TEMPLATE_UPLOADS_DIR: Path = UPLOADS_DIR / "templates"
-GENERATED_CARDS_DIR: Path = ROOT_DIR / "generated_cards"
-LOGS_DIR: Path = ROOT_DIR / "logs"
-DATABASE_DIR: Path = ROOT_DIR / "database"
+UPLOADS_DIR = _pm.uploads_dir
+TEMPLATE_UPLOADS_DIR = _pm.template_uploads_dir
+LOGS_DIR = _pm.logs_dir
+DATABASE_DIR = _pm.database_dir
 
 # ------------------------------------------------------------------
 # Database files
 # ------------------------------------------------------------------
-DATABASE_PATH: Path = DATABASE_DIR / "card_generator.db"
-SCHEMA_PATH: Path = DATABASE_DIR / "schema.sql"
+DATABASE_PATH = _pm.database_path
+SCHEMA_PATH = _pm.schema_path
 
 # ------------------------------------------------------------------
 # Directories that must exist at runtime
 # ------------------------------------------------------------------
-_REQUIRED_DIRECTORIES: tuple[Path, ...] = (
+_REQUIRED_DIRECTORIES: tuple = (
     ASSETS_DIR,
     TEMPLATES_DIR,
     ICONS_DIR,
     FONTS_DIR,
     UPLOADS_DIR,
     TEMPLATE_UPLOADS_DIR,
-    GENERATED_CARDS_DIR,
     LOGS_DIR,
     DATABASE_DIR,
 )
@@ -56,8 +58,7 @@ _REQUIRED_DIRECTORIES: tuple[Path, ...] = (
 
 def ensure_directories() -> None:
     """Create every required application directory if it does not exist."""
-    for directory in _REQUIRED_DIRECTORIES:
-        directory.mkdir(parents=True, exist_ok=True)
+    _pm.ensure_dirs()
 
 
 def resolve_template_image(path: str | None) -> str | None:

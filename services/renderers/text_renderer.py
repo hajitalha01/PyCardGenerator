@@ -15,6 +15,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from config.constants import EDITOR_FONT_DPI, EDITOR_PX_PER_MM
+from config.settings import FONTS_DIR
 from models.field import TemplateField
 from utils.logger import setup_logger
 
@@ -25,8 +26,8 @@ logger = setup_logger(__name__)
 # ------------------------------------------------------------------
 
 _WINDOWS_FONT_DIRS: tuple[str, ...] = (
-    r"C:\Windows\Fonts",
-    r"C:\Windows\WinSxS\amd64_microsoft-windows-f..onecore-fonts_31bf3856ad364e35_10.0.26100.1_none_eca354117831f639",
+    str(FONTS_DIR),
+    "C:/Windows/Fonts",
 )
 
 # Map font family names to filename stems (case-insensitive).

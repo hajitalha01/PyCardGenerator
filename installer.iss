@@ -79,7 +79,8 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: po
 
 [UninstallDelete]
 ; Remove any files the application may have created in its install dir
-Type: filesandordirs; Name: "{app}\generated_cards"
+
+Type: filesandordirs; Name: "{app}\temp"
 Type: filesandordirs; Name: "{app}\logs"
 Type: filesandordirs; Name: "{app}\uploads"
 Type: filesandordirs; Name: "{app}\database\card_generator.db"

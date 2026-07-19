@@ -19,7 +19,7 @@ from config.constants import (
     CARD_WIDTH_PX,
     EXPORT_DPI,
 )
-from config.settings import GENERATED_CARDS_DIR, resolve_template_image
+from config.settings import resolve_template_image
 from fields.field_type import FieldType
 from models.card import GeneratedCard
 from models.field import TemplateField
@@ -32,7 +32,6 @@ from services.renderers.dependents_renderer import (
 from services.renderers.image_renderer import ImageRenderer
 from services.renderers.photo_renderer import PhotoRenderer
 from services.renderers.text_renderer import TextRenderer
-from utils.helpers import ensure_dir, generate_filename
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -326,11 +325,9 @@ class RenderService:
 
         # -- Step 5: Save --
         if output_path is None:
-            ensure_dir(GENERATED_CARDS_DIR)
-            prefix: str = f"{side}_card"
-            output_path = str(
-                GENERATED_CARDS_DIR / generate_filename(prefix, ".png")
-            )
+            import tempfile
+            tmp: str = tempfile.mktemp(suffix=".png", prefix=f"{side}_card_")
+            output_path = tmp
 
         self._image_renderer.save_image(canvas, output_path, self._dpi)
         logger.info("Saved %s card image: %s", side, output_path)
@@ -411,24 +408,4 @@ class RenderService:
                 ftype,
             )
 
-    # ------------------------------------------------------------------
-    # Field metadata helpers (for GeneratedCard)
-    # ------------------------------------------------------------------
 
-    def generate_front_output_path(self) -> str:
-        """Generate a default front-card output path.
-
-        Returns:
-            An absolute path under ``GENERATED_CARDS_DIR``.
-        """
-        ensure_dir(GENERATED_CARDS_DIR)
-        return str(GENERATED_CARDS_DIR / generate_filename("front_card", ".png"))
-
-    def generate_back_output_path(self) -> str:
-        """Generate a default back-card output path.
-
-        Returns:
-            An absolute path under ``GENERATED_CARDS_DIR``.
-        """
-        ensure_dir(GENERATED_CARDS_DIR)
-        return str(GENERATED_CARDS_DIR / generate_filename("back_card", ".png"))

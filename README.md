@@ -25,7 +25,7 @@ Card Generator/
 ├── utils/                  # Helpers, validators, logger
 ├── assets/                 # Static resources
 ├── uploads/                # User-uploaded images
-├── generated_cards/        # Output directory
+
 ├── logs/                   # Application logs
 ├── tests/                  # Test suite
 ├── main.py                 # Entry point

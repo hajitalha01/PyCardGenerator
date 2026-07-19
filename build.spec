@@ -90,6 +90,7 @@ _HIDDEN_IMPORTS: list[str] = [
     "utils",
     "utils.helpers",
     "utils.logger",
+    "utils.resource_path",
     "utils.validators",
     "views",
     "views.card_generator_view",

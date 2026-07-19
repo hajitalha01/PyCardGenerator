@@ -5,7 +5,8 @@ __pycache__/
 *.pyc
 
 logs/
-generated_cards/
+
+
 uploads/
 
 database/card_generator.db

@@ -13,7 +13,6 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QSettings, Signal
 
 from config.constants import APP_NAME, EXPORT_DPI, PREVIEW_DPI
-from config.settings import GENERATED_CARDS_DIR
 
 
 class SettingsManager(QObject):
@@ -122,7 +121,7 @@ class SettingsManager(QObject):
     @property
     def download_folder(self) -> str:
         """Default directory for exported card images and PDFs."""
-        default: str = str(GENERATED_CARDS_DIR)
+        default: str = str(Path.home() / "Documents" / APP_NAME)
         return self._settings.value("download_folder", default, type=str)
 
     @download_folder.setter

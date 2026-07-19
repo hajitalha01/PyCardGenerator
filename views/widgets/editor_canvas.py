@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import traceback
 from collections import OrderedDict
+from pathlib import Path
 
+from config.settings import ROOT_DIR
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
     QBrush,
@@ -808,7 +810,16 @@ class EditorCanvas(QGraphicsView):
                 item = VerticalLineItem(x, y)
                 item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
             elif obj_type == "image":
-                img_path = field.field_name if field.field_name and field.field_name.startswith(("C:", "D:", "E:", "/", "\\")) else ""
+                img_path = ""
+                if field.field_name:
+                    p = Path(field.field_name)
+                    if p.is_absolute():
+                        if p.is_file():
+                            img_path = field.field_name
+                    else:
+                        resolved = ROOT_DIR / p
+                        if resolved.is_file():
+                            img_path = str(resolved)
                 item = ImageItem(x, y, img_path)
                 item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
             else:

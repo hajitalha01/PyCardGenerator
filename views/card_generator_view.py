@@ -68,6 +68,7 @@ from controllers.template_controller import TemplateController
 from services.export import ExportManager
 from services.export.exceptions import ExportError
 from services.export.file_name_generator import FileNameGenerator
+from utils.settings_manager import SettingsManager
 from views.preview_manager import PreviewManager
 from views.widgets.large_preview_dialog import LargePreviewDialog
 from views.widgets.preview_canvas import PreviewCanvas
@@ -1310,6 +1311,7 @@ class CardGeneratorView(QWidget):
         """
         model = self._binding_manager.model
         field_data = model.all_values
+        default_dir: str = SettingsManager().download_folder
 
         if mode == "combined":
             suggested: str = FileNameGenerator.generate_combined_name(
@@ -1319,7 +1321,7 @@ class CardGeneratorView(QWidget):
             path, _ = QFileDialog.getSaveFileName(
                 self,
                 "Export Combined PDF",
-                suggested,
+                str(Path(default_dir) / suggested),
                 "PDF (*.pdf)",
             )
             return path or None
@@ -1337,7 +1339,7 @@ class CardGeneratorView(QWidget):
         path, selected_filter = QFileDialog.getSaveFileName(
             self,
             f"Export {'Front' if mode == 'front' else 'Back'} Card",
-            suggested,
+            str(Path(default_dir) / suggested),
             "PNG (*.png);;JPEG (*.jpg *.jpeg)",
         )
         return path or None

@@ -955,6 +955,7 @@ class TextFieldItem(BaseCanvasItem):
             underline=self._underline,
             alignment=self._alignment,
         )
+        item._text = self._text
         return item
 
 

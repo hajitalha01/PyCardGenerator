@@ -83,6 +83,15 @@ from views.widgets.canvas_items import (
     VerticalLineItem,
 )
 
+# Display names for dependents table fields — mapped_field → canvas label.
+_DEP_DISPLAY_TEXT: dict[str, str] = {
+    "sr_no": "Sr No",
+    "dependent_name": "Name",
+    "dependent_relation": "Relation",
+    "dependent_date_of_birth": "Date Of Birth",
+    "dependent_cnic": "CNIC",
+}
+
 
 class EditorCanvas(QGraphicsView):
     """Card editing canvas with checkerboard background.
@@ -320,6 +329,7 @@ class EditorCanvas(QGraphicsView):
             static_text="",
         )
         self._configure_item(item)
+        item._text = display_name
         return item
 
     def add_static_text(self, x: float | None = None, y: float | None = None) -> TextFieldItem:
@@ -938,6 +948,8 @@ class EditorCanvas(QGraphicsView):
                     alignment=field.alignment,
                 )
                 item._rect = QRectF(0, 0, max(w, 20), max(h, 20))
+                if not field.is_static and field.mapped_field in _DEP_DISPLAY_TEXT:
+                    item._text = _DEP_DISPLAY_TEXT[field.mapped_field]
             elif obj_type == "photo_field":
                 item = PhotoFieldItem(x, y, mapped_field=field.mapped_field)
                 item._rect = QRectF(0, 0, max(w, 20), max(h, 20))

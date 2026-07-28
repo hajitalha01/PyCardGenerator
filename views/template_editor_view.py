@@ -61,7 +61,7 @@ _DYNAMIC_FIELD_DEFS: list[tuple[str, str, str]] = [
     ("Employee Category", "employee_category", "text"),
     ("Blood Group", "blood_group", "text"),
     ("Location", "location", "text"),
-    ("Dependents", "dependents", "text"),
+    ("Family", "dependents", "text"),
     ("Employee Photo", "employee_photo", "photo"),
 ]
 
@@ -71,7 +71,7 @@ _BACK_DYNAMIC_FIELD_DEFS: list[tuple[str, str, str]] = [
     ("Relation", "relation", "text"),
     ("Date of Birth", "dependent_date_of_birth", "date"),
     ("CNIC", "dependent_cnic", "text"),
-    ("Dependents Table", "__dependents_table__", "text"),
+    ("Table", "__dependents_table__", "text"),
 ]
 
 
@@ -1169,7 +1169,7 @@ class TemplateEditorView(QWidget):
             ("sr_no",                "Sr No",    50),
             ("dependent_name",       "Name",    170),
             ("dependent_relation",   "Relation", 120),
-            ("dependent_date_of_birth", "DOB", 120),
+            ("dependent_date_of_birth", "Date Of Birth", 120),
             ("dependent_cnic",       "CNIC",    130),
         ]
 
@@ -1193,6 +1193,7 @@ class TemplateEditorView(QWidget):
             item._rect = QRectF(0, 0, float(col_w), row_h)
             item.setZValue(0)
             canvas._configure_item(item)
+            item._text = display_name
             cx += col_w + 3.0
 
     def _on_static_element(self, action: str) -> None:

@@ -684,6 +684,43 @@ class EditorCanvas(QGraphicsView):
         )
 
     # ------------------------------------------------------------------
+    # Equal vertical spacing (3+ items, first two are the reference gap)
+    # ------------------------------------------------------------------
+
+    def apply_equal_vertical_spacing(self) -> None:
+        """Stack remaining items using the Y‑gap between the first two.
+
+        The first two items stay fixed; their Y‑difference is the uniform
+        step applied to every subsequent item.  Height is ignored.
+        """
+        items: list[BaseCanvasItem] = self._selected_in_order()
+        if len(items) < 3:
+            return
+
+        gap: float = items[1].pos().y() - items[0].pos().y()
+        old: list[tuple[BaseCanvasItem, float, float]] = [
+            (it, it.pos().x(), it.pos().y()) for it in items[2:]
+        ]
+
+        for i in range(2, len(items)):
+            items[i].setPos(
+                items[i].pos().x(),
+                items[i - 1].pos().y() + gap,
+            )
+
+        self._push_undo(
+            "Equal Vertical Spacing",
+            lambda s=old: [t.setPos(x, y) for t, x, y in s],
+            lambda its=items, g=gap: [
+                its[i].setPos(
+                    its[i].pos().x(),
+                    its[i - 1].pos().y() + g,
+                )
+                for i in range(2, len(its))
+            ],
+        )
+
+    # ------------------------------------------------------------------
     # Background image
     # ------------------------------------------------------------------
 

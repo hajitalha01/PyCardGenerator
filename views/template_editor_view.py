@@ -242,6 +242,17 @@ class TemplateEditorView(QWidget):
         )
         layout.addWidget(self._align_left_btn)
 
+        self._equal_v_spacing_btn: QPushButton = QPushButton("Equal V. Spacing")
+        self._equal_v_spacing_btn.setObjectName("editorToolbarBtn")
+        self._equal_v_spacing_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._equal_v_spacing_btn.setToolTip(
+            "Apply equal vertical spacing using the gap between the first and second selected objects (3+ items required)"
+        )
+        self._equal_v_spacing_btn.clicked.connect(
+            lambda: self._on_toolbar_action("equal_vertical_spacing")
+        )
+        layout.addWidget(self._equal_v_spacing_btn)
+
         layout.addStretch()
         return bar
 
@@ -1080,6 +1091,8 @@ class TemplateEditorView(QWidget):
             self._canvas.align_vertical_center()
         elif action == "align_bottom":
             self._canvas.align_bottom()
+        elif action == "equal_vertical_spacing":
+            self._canvas.apply_equal_vertical_spacing()
 
     def _on_zoom_changed(self, zoom: float) -> None:
         """Update the zoom display when the canvas zoom changes.

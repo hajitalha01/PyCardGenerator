@@ -694,51 +694,116 @@ class TemplateEditorView(QWidget):
         )
 
     # ------------------------------------------------------------------
-    # Text formatting signal handlers
+    # Text formatting signal handlers  —  all support multi-select + undo
     # ------------------------------------------------------------------
 
+    def _get_selected_text_items(self) -> "list[TextFieldItem]":  # noqa: F821
+        """Return all selected ``TextFieldItem`` objects."""
+        from views.widgets.canvas_items import TextFieldItem  # noqa: PLC0415
+
+        return [
+            s for s in self._canvas.selected_canvas_items()
+            if isinstance(s, TextFieldItem)
+        ]
+
     def _on_text_font_family_changed(self, family: str) -> None:
-        item = self._get_selected_text_item()
-        if item is not None:
-            item.font_family = family
+        items = self._get_selected_text_items()
+        if not items:
+            return
+        old: list[tuple] = [(it, it.font_family) for it in items]
+        for it in items:
+            it.font_family = family
+        self._canvas._push_undo(
+            "Font Family",
+            lambda s=old: [setattr(t, 'font_family', a) for t, a in s],
+            lambda s=old, n=family: [setattr(t, 'font_family', n) for t, _ in s],
+        )
 
     def _on_text_font_size_changed(self, size: int) -> None:
-        item = self._get_selected_text_item()
-        if item is not None:
-            item.font_size = size
+        items = self._get_selected_text_items()
+        if not items:
+            return
+        old: list[tuple] = [(it, it.font_size) for it in items]
+        for it in items:
+            it.font_size = size
+        self._canvas._push_undo(
+            "Font Size",
+            lambda s=old: [setattr(t, 'font_size', a) for t, a in s],
+            lambda s=old, n=size: [setattr(t, 'font_size', n) for t, _ in s],
+        )
 
     def _on_text_bold_changed(self, checked: bool) -> None:
-        item = self._get_selected_text_item()
-        if item is not None:
-            item.bold = checked
+        items = self._get_selected_text_items()
+        if not items:
+            return
+        old: list[tuple] = [(it, it.bold) for it in items]
+        for it in items:
+            it.bold = checked
+        self._canvas._push_undo(
+            "Bold",
+            lambda s=old: [setattr(t, 'bold', a) for t, a in s],
+            lambda s=old, n=checked: [setattr(t, 'bold', n) for t, _ in s],
+        )
 
     def _on_text_italic_changed(self, checked: bool) -> None:
-        item = self._get_selected_text_item()
-        if item is not None:
-            item.italic = checked
+        items = self._get_selected_text_items()
+        if not items:
+            return
+        old: list[tuple] = [(it, it.italic) for it in items]
+        for it in items:
+            it.italic = checked
+        self._canvas._push_undo(
+            "Italic",
+            lambda s=old: [setattr(t, 'italic', a) for t, a in s],
+            lambda s=old, n=checked: [setattr(t, 'italic', n) for t, _ in s],
+        )
 
     def _on_text_underline_changed(self, checked: bool) -> None:
-        item = self._get_selected_text_item()
-        if item is not None:
-            item.underline = checked
+        items = self._get_selected_text_items()
+        if not items:
+            return
+        old: list[tuple] = [(it, it.underline) for it in items]
+        for it in items:
+            it.underline = checked
+        self._canvas._push_undo(
+            "Underline",
+            lambda s=old: [setattr(t, 'underline', a) for t, a in s],
+            lambda s=old, n=checked: [setattr(t, 'underline', n) for t, _ in s],
+        )
 
     def _on_text_alignment_changed(self, text: str) -> None:
-        item = self._get_selected_text_item()
-        if item is not None:
-            align_map: dict[str, str] = {"Left": "left", "Center": "center", "Right": "right", "Justify": "justify"}
-            item.alignment = align_map.get(text, "left")
+        items = self._get_selected_text_items()
+        if not items:
+            return
+        align_map: dict[str, str] = {"Left": "left", "Center": "center", "Right": "right", "Justify": "justify"}
+        value: str = align_map.get(text, "left")
+        old: list[tuple] = [(it, it.alignment) for it in items]
+        for it in items:
+            it.alignment = value
+        self._canvas._push_undo(
+            "Text Alignment",
+            lambda s=old: [setattr(t, 'alignment', a) for t, a in s],
+            lambda s=old, n=value: [setattr(t, 'alignment', n) for t, _ in s],
+        )
 
     def _on_text_color_clicked(self) -> None:
-        """Open a colour picker and apply the chosen colour."""
-        item = self._get_selected_text_item()
-        if item is None:
+        """Open a colour picker and apply the chosen colour to all selected text items."""
+        items = self._get_selected_text_items()
+        if not items:
             return
-        initial: QColor = QColor(item.font_color)
+        initial: QColor = QColor(items[0].font_color)
         color: QColor = QColorDialog.getColor(initial, self, "Select Text Colour")
         if color.isValid():
             hex_color: str = color.name()
-            item.font_color = hex_color
+            old: list[tuple] = [(it, it.font_color) for it in items]
+            for it in items:
+                it.font_color = hex_color
             self._update_color_button(hex_color)
+            self._canvas._push_undo(
+                "Text Color",
+                lambda s=old: [setattr(t, 'font_color', a) for t, a in s],
+                lambda s=old, n=hex_color: [setattr(t, 'font_color', n) for t, _ in s],
+            )
 
     # ------------------------------------------------------------------
     # Signal connections

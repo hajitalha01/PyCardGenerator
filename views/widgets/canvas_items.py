@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QGraphicsObject,
     QGraphicsScene,
     QGraphicsSceneMouseEvent,
+    QGraphicsSimpleTextItem,
     QGraphicsTextItem,
     QMenu,
     QStyle,
@@ -142,6 +143,9 @@ class BaseCanvasItem(QGraphicsObject):
         self._active_handle: int = -1
         self._drag_start_pos: QPointF = QPointF()
         self._guide_lines: list[QGraphicsItem] = []
+        self._guide_labels: list[QGraphicsItem] = []
+        self._is_dragging: bool = False
+        self._snap_offsets: dict[str, float | None] = {"x": None, "y": None}
 
     # ------------------------------------------------------------------
     # Public configuration
@@ -241,6 +245,8 @@ class BaseCanvasItem(QGraphicsObject):
         else:
             super().mousePressEvent(event)
             self._drag_start_pos = event.pos()
+            self._is_dragging = True
+            self._snap_offsets = {"x": None, "y": None}
             if self.isSelected():
                 self.item_selected.emit(self)
 
@@ -250,11 +256,16 @@ class BaseCanvasItem(QGraphicsObject):
             self._resize_to(event)
         else:
             super().mouseMoveEvent(event)
+            if self._is_dragging:
+                self._snap_to_items()
         self._update_guides(event)
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent) -> None:  # noqa: N802
         """Finish resize/drag, snap, and clear guides."""
         self._clear_guides()
+        self._clear_guide_labels()
+        self._is_dragging = False
+        self._snap_offsets = {"x": None, "y": None}
         if self._active_handle >= 0:
             self._active_handle = -1
             self._snap_rect()
@@ -338,34 +349,168 @@ class BaseCanvasItem(QGraphicsObject):
         self.setPos(sx, sy)
 
     # ------------------------------------------------------------------
-    # Alignment guides
+    # Smart alignment guides
     # ------------------------------------------------------------------
 
+    def _get_snap_points(self) -> list[tuple[float, float, str]]:
+        """Return (value, pos, label) snap candidates for this item.
+
+        Returns X-axis snap points: left edge, centre, right edge.
+        """
+        px: float = self.pos().x()
+        pw: float = self._rect.width()
+        return [
+            (px, px, "left"),
+            (px + pw / 2.0, px + pw / 2.0, "center"),
+            (px + pw, px + pw, "right"),
+        ]
+
+    def _get_other_items(self) -> list[BaseCanvasItem]:
+        """Return all non-selected BaseCanvasItem objects in the scene."""
+        scene: QGraphicsScene | None = self.scene()
+        if scene is None:
+            return []
+        return [
+            i for i in scene.items()
+            if isinstance(i, BaseCanvasItem) and i is not self and not i.isSelected()
+        ]
+
+    def _snap_to_items(self) -> None:
+        """Snap this item's position to align with other items' edges/centres."""
+        scene: QGraphicsScene | None = self.scene()
+        if scene is None:
+            return
+        others: list[BaseCanvasItem] = self._get_other_items()
+        sr: QRectF = scene.sceneRect()
+        snap_x: float | None = None
+        snap_y: float | None = None
+
+        my_x_points: list[tuple[float, float, str]] = self._get_snap_points()
+        my_rect: QRectF = self._rect
+        my_top: float = self.pos().y()
+        my_center_y: float = my_top + my_rect.height() / 2.0
+        my_bottom: float = my_top + my_rect.height()
+
+        # Check X alignment against other items
+        for other in others:
+            ox: float = other.pos().x()
+            ow: float = other._rect.width()
+            other_x_points: list[float] = [ox, ox + ow / 2.0, ox + ow]
+            for my_val, _, _ in my_x_points:
+                for o_val in other_x_points:
+                    if abs(my_val - o_val) < SNAP_THRESHOLD:
+                        snap_x = o_val - (my_val - self.pos().x())
+                        self._snap_offsets["x"] = o_val
+
+        # Check Y alignment against other items (top, centre, bottom)
+        for other in others:
+            oy: float = other.pos().y()
+            oh: float = other._rect.height()
+            other_y_points: list[float] = [oy, oy + oh / 2.0, oy + oh]
+            for my_val in (my_top, my_center_y, my_bottom):
+                for o_val in other_y_points:
+                    if abs(my_val - o_val) < SNAP_THRESHOLD:
+                        snap_y = o_val - (my_val - self.pos().y())
+                        self._snap_offsets["y"] = o_val
+
+        # Check against card centre
+        cx: float = sr.center().x()
+        cy: float = sr.center().y()
+        for my_val, _, _ in my_x_points:
+            if abs(my_val - cx) < SNAP_THRESHOLD:
+                snap_x = cx - (my_val - self.pos().x())
+                self._snap_offsets["x"] = cx
+        for my_val in (my_top, my_center_y, my_bottom):
+            if abs(my_val - cy) < SNAP_THRESHOLD:
+                snap_y = cy - (my_val - self.pos().y())
+                self._snap_offsets["y"] = cy
+
+        if snap_x is not None or snap_y is not None:
+            cur_x: float = self.pos().x()
+            cur_y: float = self.pos().y()
+            self.setPos(
+                snap_x if snap_x is not None else cur_x,
+                snap_y if snap_y is not None else cur_y,
+            )
+
     def _update_guides(self, event: QGraphicsSceneMouseEvent) -> None:
-        """Draw temporary alignment guides while dragging/resizing."""
+        """Draw temporary alignment guides and distance labels while dragging."""
         self._clear_guides()
+        self._clear_guide_labels()
         scene: QGraphicsScene | None = self.scene()
         if scene is None:
             return
 
         sr: QRectF = scene.sceneRect()
+        others: list[BaseCanvasItem] = self._get_other_items()
+        lines: list[tuple[float, float, float, float]] = []
+        labels: list[tuple[float, float, str]] = []
+
+        my_x_points: list[tuple[float, float, str]] = self._get_snap_points()
+        my_rect: QRectF = self._rect
+        my_top: float = self.pos().y()
+        my_center_y: float = my_top + my_rect.height() / 2.0
+        my_bottom: float = my_top + my_rect.height()
+
+        # Check X alignment
+        for other in others:
+            ox: float = other.pos().x()
+            ow: float = other._rect.width()
+            other_x_points: list[float] = [ox, ox + ow / 2.0, ox + ow]
+            for my_val, raw_val, my_label in my_x_points:
+                for o_val in other_x_points:
+                    dist: float = abs(my_val - o_val)
+                    if dist < SNAP_THRESHOLD:
+                        lines.append((o_val, sr.top(), o_val, sr.bottom()))
+                        if dist > 1.0:
+                            labels.append((
+                                (o_val + my_val) / 2.0,
+                                sr.top() + 10,
+                                f"{dist:.0f}px",
+                            ))
+
+        # Check Y alignment
+        for other in others:
+            oy: float = other.pos().y()
+            oh: float = other._rect.height()
+            other_y_points: list[float] = [oy, oy + oh / 2.0, oy + oh]
+            for my_val, my_label in [(my_top, "top"), (my_center_y, "center"), (my_bottom, "bottom")]:
+                for o_val in other_y_points:
+                    dist = abs(my_val - o_val)
+                    if dist < SNAP_THRESHOLD:
+                        lines.append((sr.left(), o_val, sr.right(), o_val))
+                        if dist > 1.0:
+                            labels.append((
+                                sr.left() + 10,
+                                (o_val + my_val) / 2.0,
+                                f"{dist:.0f}px",
+                            ))
+
+        # Check card centre X
         cx: float = sr.center().x()
         cy: float = sr.center().y()
-        pc: QPointF = self._rect.center() + self.pos()
-        lines: list[tuple[float, float, float, float]] = []
+        for my_val, _, _ in my_x_points:
+            if abs(my_val - cx) < SNAP_THRESHOLD:
+                lines.append((cx, sr.top(), cx, sr.bottom()))
+        for my_val in (my_top, my_center_y, my_bottom):
+            if abs(my_val - cy) < SNAP_THRESHOLD:
+                lines.append((sr.left(), cy, sr.right(), cy))
 
-        # Card centre vertical guide
-        if abs(pc.x() - cx) < SNAP_THRESHOLD:
-            lines.append((cx, sr.top(), cx, sr.bottom()))
-
-        # Card centre horizontal guide
-        if abs(pc.y() - cy) < SNAP_THRESHOLD:
-            lines.append((sr.left(), cy, sr.right(), cy))
-
+        # Draw lines
         for x1, y1, x2, y2 in lines:
             line: QGraphicsItem = scene.addLine(x1, y1, x2, y2, GUIDE_PEN)
             line.setZValue(9999)
             self._guide_lines.append(line)
+
+        # Draw labels
+        for lx, ly, text in labels:
+            txt: QGraphicsSimpleTextItem = QGraphicsSimpleTextItem(text)
+            txt.setFont(QFont("Segoe UI", 9))
+            txt.setBrush(GUIDE_COLOR)
+            txt.setPos(lx, ly)
+            txt.setZValue(10000)
+            scene.addItem(txt)
+            self._guide_labels.append(txt)
 
     def _clear_guides(self) -> None:
         """Remove all temporary guide lines from the scene."""
@@ -374,6 +519,14 @@ class BaseCanvasItem(QGraphicsObject):
             for line in self._guide_lines:
                 scene.removeItem(line)
         self._guide_lines.clear()
+
+    def _clear_guide_labels(self) -> None:
+        """Remove all temporary guide labels from the scene."""
+        scene: QGraphicsScene | None = self.scene()
+        if scene is not None:
+            for label in self._guide_labels:
+                scene.removeItem(label)
+        self._guide_labels.clear()
 
     # ------------------------------------------------------------------
     # Item changes
@@ -728,11 +881,13 @@ class TextFieldItem(BaseCanvasItem):
             painter.setPen(QColor(self._font_color))
             tr: QRectF = self._rect.adjusted(6, 4, -6, -4)
 
-            align: Qt.AlignmentFlag = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            align: int = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextWordWrap
             if self._alignment == "center":
-                align = Qt.AlignmentFlag.AlignCenter
+                align = Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextWordWrap
             elif self._alignment == "right":
-                align = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                align = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextWordWrap
+            elif self._alignment == "justify":
+                align = Qt.AlignmentFlag.AlignJustify | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextWordWrap
 
             painter.drawText(tr, align, self._text)
 

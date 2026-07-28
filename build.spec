@@ -26,6 +26,8 @@ _DATAS: list[tuple[str, str]] = [
     ("config", "config"),
     # Database schema (DB file created at runtime)
     ("database/schema.sql", "database"),
+    # Seed database with default templates (copied to writable dir on first launch)
+    ("database/seed.db", "database"),
     # Static assets (icons, fonts, templates)
     ("assets", "assets"),
 ]

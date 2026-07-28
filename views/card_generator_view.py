@@ -74,6 +74,8 @@ from views.widgets.large_preview_dialog import LargePreviewDialog
 from views.widgets.preview_canvas import PreviewCanvas
 from views.widgets.wheel_ignoring_combo import WheelIgnoringComboBox
 
+from pathlib import Path
+
 logger = logging.getLogger(__name__)
 
 

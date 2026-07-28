@@ -163,6 +163,9 @@ class EditorCanvas(QGraphicsView):
         # Pre-drag state snapshot for undo creation
         self._pre_drag_state: dict[int, tuple[QPointF, QRectF]] = {}
 
+        # Selection order for deterministic object-alignment reference
+        self._selection_order: list[BaseCanvasItem] = []
+
         self._setup_scene()
 
         # Connect scene selection signal
@@ -477,8 +480,39 @@ class EditorCanvas(QGraphicsView):
         ]
 
     def _on_scene_selection_changed(self) -> None:
-        """Emit ``selection_changed`` when the scene selection updates."""
+        """Track selection order and emit ``selection_changed``."""
+        current: set[BaseCanvasItem] = {
+            i for i in self._scene.selectedItems()
+            if isinstance(i, BaseCanvasItem)
+        }
+        old: set[BaseCanvasItem] = set(self._selection_order)
+
+        # Remove items that were deselected
+        for item in old - current:
+            if item in self._selection_order:
+                self._selection_order.remove(item)
+
+        # Append items that were newly selected (chronological order)
+        for item in self._scene.selectedItems():
+            if isinstance(item, BaseCanvasItem) and item not in old:
+                self._selection_order.append(item)
+
         self.selection_changed.emit()
+
+    def _selected_in_order(self) -> list[BaseCanvasItem]:
+        """Return selected items in the order they were selected.
+
+        The first item is the one the user selected chronologically first.
+        For marquee (simultaneous) selections, scene order is used as
+        fallback.
+        """
+        result: list[BaseCanvasItem] = [
+            i for i in self._selection_order
+            if i.isSelected()
+        ]
+        if not result:
+            result = self.selected_canvas_items()
+        return result
 
     def _on_item_selected(self, item: object) -> None:
         """Emit ``object_selected`` with the chosen item.
@@ -575,6 +609,79 @@ class EditorCanvas(QGraphicsView):
                         i.update(),
                     ),
                 )
+
+    # ------------------------------------------------------------------
+    # Box alignment tools  —  first selected item is the reference
+    # ------------------------------------------------------------------
+
+    def _align(self, description: str, get_target) -> None:
+        """Generic alignment: move all except the first selected item.
+
+        The first selected item (chronologically) is the unmoved reference.
+
+        *get_target(reference, item)* returns the new X or Y for *item*.
+        """
+        raw: list[BaseCanvasItem] = self._selected_in_order()
+        if len(raw) < 2:
+            return
+        reference: BaseCanvasItem = raw[0]
+        to_move: list[BaseCanvasItem] = raw[1:]
+        old: list[tuple[BaseCanvasItem, float, float]] = [
+            (it, it.pos().x(), it.pos().y()) for it in to_move
+        ]
+        for it in to_move:
+            val: float = get_target(reference, it)
+            if description in ("Align Left", "Align Horizontal Center", "Align Right"):
+                it.setPos(val, it.pos().y())
+            else:
+                it.setPos(it.pos().x(), val)
+        self._push_undo(
+            description,
+            lambda s=old: [t.setPos(x, y) for t, x, y in s],
+            lambda s=old: [
+                t.setPos(
+                    get_target(reference, t) if description in ("Align Left", "Align Horizontal Center", "Align Right") else t.pos().x(),
+                    get_target(reference, t) if description in ("Align Top", "Align Vertical Center", "Align Bottom") else t.pos().y(),
+                )
+                for t, _, _ in s
+            ],
+        )
+
+    def align_left(self) -> None:
+        """Align all selected items' left edges to the reference item."""
+        self._align("Align Left", lambda ref, _: ref.pos().x())
+
+    def align_center_x(self) -> None:
+        """Align all selected items' horizontal centres to the reference."""
+        self._align(
+            "Align Horizontal Center",
+            lambda ref, it: ref.pos().x() + ref._rect.width() / 2.0 - it._rect.width() / 2.0,
+        )
+
+    def align_right(self) -> None:
+        """Align all selected items' right edges to the reference item."""
+        self._align(
+            "Align Right",
+            lambda ref, it: ref.pos().x() + ref._rect.width() - it._rect.width(),
+        )
+
+    def align_top(self) -> None:
+        """Align all selected items' top edges to the reference item."""
+        self._align("Align Top", lambda ref, _: ref.pos().y())
+
+    def align_vertical_center(self) -> None:
+        """Align all selected items' vertical centres to the reference."""
+        self._align(
+            "Align Vertical Center",
+            lambda ref, it: ref.pos().y() + ref._rect.height() / 2.0 - it._rect.height() / 2.0,
+        )
+
+    def align_bottom(self) -> None:
+        """Align all selected items' bottom edges to the reference item."""
+        self._align(
+            "Align Bottom",
+            lambda ref, it: ref.pos().y() + ref._rect.height() - it._rect.height(),
+        )
 
     # ------------------------------------------------------------------
     # Background image

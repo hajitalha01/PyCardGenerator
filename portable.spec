@@ -24,6 +24,7 @@ _PROJECT_ROOT = Path(".").resolve()
 _DATAS: list[tuple[str, str]] = [
     ("config", "config"),
     ("database/schema.sql", "database"),
+    ("database/seed.db", "database"),
     ("assets", "assets"),
 ]
 

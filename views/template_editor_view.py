@@ -229,6 +229,19 @@ class TemplateEditorView(QWidget):
         self._grid_btn.setToolTip("Toggle grid snapping on/off")
         layout.addWidget(self._grid_btn)
 
+        layout.addWidget(self._make_separator())
+
+        self._align_left_btn: QPushButton = QPushButton("Align Left")
+        self._align_left_btn.setObjectName("editorToolbarBtn")
+        self._align_left_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._align_left_btn.setToolTip(
+            "Align left edges of selected objects using the first-selected object as reference"
+        )
+        self._align_left_btn.clicked.connect(
+            lambda: self._on_toolbar_action("align_left")
+        )
+        layout.addWidget(self._align_left_btn)
+
         layout.addStretch()
         return bar
 
@@ -627,7 +640,7 @@ class TemplateEditorView(QWidget):
         # Alignment
         self._text_alignment: WheelIgnoringComboBox = WheelIgnoringComboBox()
         self._text_alignment.setObjectName("fieldInput")
-        self._text_alignment.addItems(["Left", "Center", "Right"])
+        self._text_alignment.addItems(["Left", "Center", "Right", "Justify"])
         layout.addWidget(self._make_field_row("Align:", self._text_alignment))
 
         return container
@@ -662,7 +675,7 @@ class TemplateEditorView(QWidget):
         self._text_italic.setChecked(item.italic)
         self._text_underline.setChecked(item.underline)
 
-        align_map: dict[str, int] = {"left": 0, "center": 1, "right": 2}
+        align_map: dict[str, int] = {"left": 0, "center": 1, "right": 2, "justify": 3}
         self._text_alignment.setCurrentIndex(align_map.get(item.alignment, 0))
 
         self._update_color_button(item.font_color)
@@ -712,7 +725,7 @@ class TemplateEditorView(QWidget):
     def _on_text_alignment_changed(self, text: str) -> None:
         item = self._get_selected_text_item()
         if item is not None:
-            align_map: dict[str, str] = {"Left": "left", "Center": "center", "Right": "right"}
+            align_map: dict[str, str] = {"Left": "left", "Center": "center", "Right": "right", "Justify": "justify"}
             item.alignment = align_map.get(text, "left")
 
     def _on_text_color_clicked(self) -> None:
@@ -990,6 +1003,18 @@ class TemplateEditorView(QWidget):
             self._canvas.reset_zoom()
         elif action == "fit_screen":
             self._canvas.fit_to_screen()
+        elif action == "align_left":
+            self._canvas.align_left()
+        elif action == "align_center_x":
+            self._canvas.align_center_x()
+        elif action == "align_right":
+            self._canvas.align_right()
+        elif action == "align_top":
+            self._canvas.align_top()
+        elif action == "align_vertical_center":
+            self._canvas.align_vertical_center()
+        elif action == "align_bottom":
+            self._canvas.align_bottom()
 
     def _on_zoom_changed(self, zoom: float) -> None:
         """Update the zoom display when the canvas zoom changes.

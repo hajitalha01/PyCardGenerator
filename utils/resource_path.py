@@ -162,6 +162,10 @@ class PathManager:
     def schema_path(self) -> Path:
         return self._res_root / "database" / "schema.sql"
 
+    @property
+    def seed_db_path(self) -> Path:
+        return self._res_root / "database" / "seed.db"
+
     # -- Convenience --
     def ensure_dirs(self) -> None:
         """Create every required writable directory if it does not exist."""

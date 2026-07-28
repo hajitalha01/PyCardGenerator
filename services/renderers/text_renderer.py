@@ -358,13 +358,29 @@ def render_text(
 
     y_offset: int = y + (h - text_h) // 2
 
-    for line in lines:
+    for i, line in enumerate(lines):
         line_w: int = font.getbbox(line)[2] if line else 0
 
         if align == "center":
             lx: int = x + (w - line_w) // 2
         elif align == "right":
             lx: int = x + w - line_w - padding_h
+        elif align == "justify" and line and i < len(lines) - 1 and " " in line:
+            words_list: list[str] = line.split()
+            words_total: int = sum(font.getbbox(w)[2] for w in words_list)
+            gap: float = (w - 2 * padding_h - words_total) / (len(words_list) - 1)
+            lx = x + padding_h
+            for j, wd in enumerate(words_list):
+                text_draw.text(
+                    (round(lx), y_offset),
+                    wd,
+                    font=font,
+                    fill=(*text_color, opacity_scale),
+                )
+                if j < len(words_list) - 1:
+                    lx += font.getbbox(wd)[2] + gap
+            y_offset += line_h
+            continue
         else:
             lx = x + padding_h
 
@@ -381,12 +397,20 @@ def render_text(
     # --- Underline ---
     if field.underline:
         y_offset = y + (h - text_h) // 2
-        for line in lines:
+        for i, line in enumerate(lines):
             line_w = font.getbbox(line)[2] if line else 0
             if align == "center":
                 lx = x + (w - line_w) // 2
             elif align == "right":
                 lx = x + w - line_w - padding_h
+            elif align == "justify" and line and i < len(lines) - 1 and " " in line:
+                words_list = line.split()
+                words_total = sum(font.getbbox(w)[2] for w in words_list)
+                gap = (w - 2 * padding_h - words_total) / (len(words_list) - 1)
+                lx = x + padding_h
+                for j, wd in enumerate(words_list):
+                    if j < len(words_list) - 1:
+                        lx += font.getbbox(wd)[2] + gap
             else:
                 lx = x + padding_h
 

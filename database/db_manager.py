@@ -6,8 +6,14 @@ query patterns.
 
 The database file and schema are created automatically on first
 connection if they do not already exist.
+
+On first launch (when the writable database does not exist) a
+bundled seed database containing default templates is copied to
+the writable location, along with the required template background
+images.
 """
 
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -17,9 +23,11 @@ from config.settings import (
     DATABASE_DIR,
     DATABASE_PATH,
     SCHEMA_PATH,
+    TEMPLATE_UPLOADS_DIR,
     ensure_directories,
 )
 from utils.logger import setup_logger
+from utils.resource_path import PathManager
 
 logger = setup_logger(__name__)
 
@@ -63,6 +71,10 @@ class DatabaseManager:
         Creates the database directory, database file, and schema
         tables automatically when called for the first time.
 
+        On first launch (writable database does not exist) a bundled
+        seed database with default templates is copied to the writable
+        location, along with the required template background images.
+
         Returns:
             An open ``sqlite3.Connection`` with ``row_factory`` set to
             ``sqlite3.Row`` and WAL mode enabled.
@@ -71,6 +83,10 @@ class DatabaseManager:
             return self._connection
 
         ensure_directories()
+
+        if not self._db_path.exists():
+            self._initialise_from_seed()
+
         logger.info("Opening database at %s", self._db_path)
 
         self._connection = sqlite3.connect(str(self._db_path), isolation_level=None)
@@ -83,7 +99,35 @@ class DatabaseManager:
 
         return self._connection
 
-    def close(self) -> None:
+    def _initialise_from_seed(self) -> None:
+        """Copy the bundled seed database and template images on first launch.
+
+        Only runs when the writable database does not yet exist, so
+        existing user databases are never overwritten.
+        """
+        _pm = PathManager()
+        seed: Path = _pm.seed_db_path
+
+        if not seed.exists():
+            logger.info("No seed database found at %s; using schema-only init", seed)
+            return
+
+        logger.info("First launch detected — copying seed database to %s", self._db_path)
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(seed), str(self._db_path))
+
+        bundled_templates: Path = _pm.templates_dir
+        if bundled_templates.is_dir():
+            TEMPLATE_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+            for img in bundled_templates.iterdir():
+                if img.is_file() and img.suffix.lower() in (".png", ".jpg", ".jpeg", ".bmp"):
+                    dst = TEMPLATE_UPLOADS_DIR / img.name
+                    if not dst.exists():
+                        shutil.copy2(str(img), str(dst))
+                        logger.info("Copied bundled template image: %s", img.name)
+
+        self._schema_initialised = True
+        logger.info("Database initialised from seed: %s", self._db_path)
         """Close the database connection if it is open.
 
         The singleton instance remains valid and will create a fresh

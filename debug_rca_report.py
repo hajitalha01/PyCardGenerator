@@ -1,4 +1,4 @@
-"""Root Cause Analysis report generator."""
+"""Root Cause Analysis report generatoor."""
 import sys
 import os
 os.environ["QT_QPA_PLATFORM"] = "windows"
